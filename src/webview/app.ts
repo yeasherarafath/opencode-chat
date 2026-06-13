@@ -1497,6 +1497,8 @@ class App {
 
   private newSession(): void {
     this.state.currentSessionId = null;
+    this.state.showSessions = false;
+    this.sessionsPanel.classList.add("hidden");
     this.state.messages = [];
     this.renderMessages();
     this.renderSessionList();

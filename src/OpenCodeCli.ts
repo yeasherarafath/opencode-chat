@@ -290,6 +290,18 @@ export class OpenCodeCli {
   }
 
   async getVersion(): Promise<string> {
+    if (this.binaryPath) {
+      try {
+        return await new Promise<string>((resolve, reject) => {
+          execFile(this.binaryPath!, ["--version"], { timeout: 5000 }, (err, stdout) => {
+            if (err) reject(err);
+            else resolve(stdout.trim());
+          });
+        });
+      } catch {
+        // fall through to server check
+      }
+    }
     if (!this.serverUrl) return "sdk";
     try {
       const res = await fetch(`${this.serverUrl}/health`);
