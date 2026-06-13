@@ -414,6 +414,9 @@ body {
   display: none;
 }
 .reasoning-body.open { display: block; }
+.reasoning-body .md { font: var(--font-body-sm); line-height: 1.625; }
+.reasoning-body .md p { margin: 6px 0; }
+.reasoning-body .md p:first-child { margin-top: 0; }
 
 /* ===== Markdown ===== */
 .msg .bubble .text .md p { margin: 6px 0; }

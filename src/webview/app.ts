@@ -484,6 +484,10 @@ class App {
     newBtn.innerHTML = "<span class='icon'>+</span> New Chat";
     newBtn.onclick = () => this.newSession();
     top.appendChild(newBtn);
+    const refreshBtn = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:text-primary hover:bg-white/4", title: "Refresh session" });
+    refreshBtn.innerHTML = "<span class='icon'>&#x21BB;</span>";
+    refreshBtn.onclick = () => this.refreshSession();
+    top.appendChild(refreshBtn);
     bar.appendChild(top);
 
     const seg = el("div", { className: "flex gap-1 p-0.5 rounded-lg bg-surface-container-lowest border border-outline-variant overflow-x-auto", "data-part": "agent-segmented" });
@@ -1065,6 +1069,11 @@ class App {
     this.searchMatches = [];
     this.searchActiveIdx = -1;
     this.chatArea.innerHTML = "";
+    // hide session list when viewing a session with messages
+    if (this.state.currentSessionId && this.state.messages.length) {
+      this.state.showSessions = false;
+      this.sessionsPanel.classList.add("hidden");
+    }
     if (!this.state.messages.length) {
       this.chatArea.appendChild(el("div", { className: "empty" }, [
         txt("Start a conversation with OpenCode."),
@@ -1155,7 +1164,8 @@ class App {
         hdr.appendChild(chevron);
         const body = document.createElement("div");
         body.className = "reasoning-body";
-        body.textContent = String((part as any).text || "");
+        const rt = String((part as any).text || "");
+        if (rt) body.appendChild(renderMarkdown(rt));
         hdr.onclick = () => {
           const open = body.classList.toggle("open");
           chevron.classList.toggle("open", open);
@@ -1279,14 +1289,8 @@ class App {
 
   private finalizeStreaming(): void {
     if (this.streamingMsgEl) {
-      const modelName = this.state.selectedModel || "OpenCode";
-      const parts = this.streamingParts.length ? this.streamingParts : undefined;
-      const content = this.streamingContent;
       this.streamingMsgEl.remove();
       this.streamingMsgEl = null;
-      if (content || (parts && parts.length)) {
-        this.appendMessageDOM("assistant", content, parts, modelName);
-      }
     }
   }
 
@@ -1580,6 +1584,15 @@ class App {
     vscode.postMessage({ type: "load-messages", sessionId: id });
   }
 
+  private refreshSession(): void {
+    const id = this.state.currentSessionId;
+    if (!id) return;
+    this.setStatus("busy", "Refreshing...");
+    this.state.messages = [];
+    this.renderMessages();
+    vscode.postMessage({ type: "load-messages", sessionId: id });
+  }
+
   private deleteSession(id: string): void {
     vscode.postMessage({ type: "delete-session", sessionId: id });
     this.state.sessions = this.state.sessions.filter(s => s.id !== id);
@@ -1688,33 +1701,19 @@ class App {
         case "response-end":
           console.log(`[webview] response-end streamingContentLen=${this.streamingContent.length} saved=${this.streamingSaved} parts=${this.streamingParts.length}`);
           this.finalizeStreaming();
-          if (this.streamingContent || this.streamingParts.length) {
-            if (!this.streamingSaved) {
-              this.state.messages.push({
-                role: "assistant",
-                content: this.streamingContent,
-                parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
-              });
-              this.renderMessages();
-              this.updateTokenDisplay();
-            } else {
-              const last = this.state.messages[this.state.messages.length - 1];
-              if (!last?.content && this.streamingContent.trim()) {
-                this.state.messages.push({ role: "assistant", content: this.streamingContent });
-                this.renderMessages();
-                this.updateTokenDisplay();
-              }
-              // merge streaming parts into last message if it has none
-              if (last && this.streamingParts.length && !last.parts) {
-                (last as any).parts = [...this.streamingParts];
-                this.renderMessages();
-              }
-            }
+          if ((this.streamingContent || this.streamingParts.length) && !this.streamingSaved) {
+            this.state.messages.push({
+              role: "assistant",
+              content: this.streamingContent,
+              parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
+            });
+            this.renderMessages();
           }
           this.state.isRunning = false;
           this.streamingContent = "";
           this.streamingParts = [];
           this.streamingSaved = false;
+          this.updateTokenDisplay();
           this.updateRunningState();
           this.setStatus("ready", "Ready");
           break;
@@ -1725,19 +1724,12 @@ class App {
         case "aborted":
           console.log("[webview] aborted");
           this.finalizeStreaming();
-          if (this.streamingContent || this.streamingParts.length) {
-            if (!this.streamingSaved) {
-              this.state.messages.push({
-                role: "assistant",
-                content: this.streamingContent,
-                parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
-              });
-            } else {
-              const last = this.state.messages[this.state.messages.length - 1];
-              if (!last?.content && this.streamingContent.trim()) {
-                this.state.messages.push({ role: "assistant", content: this.streamingContent });
-              }
-            }
+          if ((this.streamingContent || this.streamingParts.length) && !this.streamingSaved) {
+            this.state.messages.push({
+              role: "assistant",
+              content: this.streamingContent,
+              parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
+            });
           }
           this.state.isRunning = false;
           this.streamingContent = "";
