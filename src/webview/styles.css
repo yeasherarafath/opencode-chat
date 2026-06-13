@@ -547,5 +547,10 @@ body {
 }
 .at-menu .at-browse:hover { background: rgba(173, 198, 255, .06); }
 
+/* ===== Search ===== */
+.search-hl { background: rgba(77, 142, 255, .25); border-radius: 2px; }
+.msg.search-match { border-left: 2px solid var(--primary-container); background: rgba(77, 142, 255, .04); }
+.msg.search-active { border-left: 2px solid var(--primary); background: rgba(77, 142, 255, .1); box-shadow: 0 0 0 1px rgba(77, 142, 255, .3); }
+
 /* ===== Overlay / Modal ===== */
 .overlay.hidden { display: none; }

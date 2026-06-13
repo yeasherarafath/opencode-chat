@@ -328,6 +328,7 @@ interface AppState {
   sessionCount: number;
   sessionFilter: string;
   workspaceFiles: string[];
+  attachedFiles: string[];
   pendingQuestion: QuestionData | null;
 }
 
@@ -336,7 +337,7 @@ class App {
     isInstalled: false, opencodeVersion: "",
     sessions: [], currentSessionId: null, messages: [],
     models: [], agents: [], selectedModel: "", selectedAgent: "", selectedVariant: "",
-    isRunning: false, showSessions: true, sessionCount: 0, sessionFilter: "", workspaceFiles: [], pendingQuestion: null,
+    isRunning: false, showSessions: true, sessionCount: 0, sessionFilter: "", workspaceFiles: [], attachedFiles: [], pendingQuestion: null,
   };
 
   private root: HTMLElement;
@@ -349,6 +350,7 @@ class App {
   private statusDot!: HTMLElement;
   private statusText!: HTMLElement;
   private infoBtn!: HTMLElement;
+  private tokenDisplayEl!: HTMLElement;
   private streamingMsgEl: HTMLElement | null = null;
   private streamingContent = "";
   private streamingSaved = false;
@@ -356,11 +358,18 @@ class App {
   private sessionSearchInput!: HTMLInputElement;
   private sessionListEl!: HTMLElement;
   private atMenuEl!: HTMLElement;
+  private fileChipsEl!: HTMLElement;
+  private activeFile = "";
   private filteredSlash: typeof SLASH_CMDS = [];
   private slashIdx = 0;
   private overlayEl!: HTMLElement;
   private pendingDiffResolve: ((d: FileDiff[]) => void) | null = null;
   private pendingProviderResolve: ((p: ProviderInfo[]) => void) | null = null;
+  private searchBarEl!: HTMLElement;
+  private searchInput!: HTMLInputElement;
+  private searchNavEl!: HTMLElement;
+  private searchMatches: HTMLElement[] = [];
+  private searchActiveIdx = -1;
 
   constructor() {
     this.root = document.getElementById("root")!;
@@ -402,11 +411,31 @@ class App {
     };
     this.sessionListEl = el("div", { className: "session-list" });
     this.sessionsPanel.append(this.sessionSearchInput, this.sessionListEl);
+    this.searchBarEl = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 bg-surface-dim border-b border-outline-variant hidden shrink-0" });
+    this.searchInput = el("input", { className: "flex-1 bg-surface-container-lowest border border-outline-variant rounded-sm px-2 py-1 text-xs outline-none text-on-surface font-ui placeholder:text-on-surface-variant/60 focus:border-primary-container", placeholder: "Search messages\u2026", type: "text" }) as HTMLInputElement;
+    const searchClose = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-0.5 text-xs hover:text-on-surface shrink-0", title: "Close search (Escape)" });
+    searchClose.textContent = "\u2715";
+    searchClose.onclick = () => this.toggleSearch(false);
+    this.searchNavEl = el("span", { className: "text-xs text-on-surface-variant/70 shrink-0 w-10 text-right" });
+    this.searchNavEl.textContent = "0/0";
+    const searchUp = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-0.5 text-xs hover:text-on-surface shrink-0", title: "Previous match" });
+    searchUp.textContent = "\u25B2";
+    searchUp.onclick = () => this.searchPrev();
+    const searchDown = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-0.5 text-xs hover:text-on-surface shrink-0", title: "Next match" });
+    searchDown.textContent = "\u25BC";
+    searchDown.onclick = () => this.searchNext();
+    this.searchInput.oninput = () => this.doSearch(this.searchInput.value);
+    this.searchInput.onkeydown = (e) => {
+      if (e.key === "Escape") { this.toggleSearch(false); this.inputTextarea.focus(); }
+      if (e.key === "Enter") { e.shiftKey ? this.searchPrev() : this.searchNext(); }
+    };
+    this.searchBarEl.append(this.searchInput, searchClose, searchUp, searchDown, this.searchNavEl);
+
     this.chatArea = el("div", { className: "flex-1 overflow-y-auto px-3 py-6 flex flex-col gap-5 overflow-x-hidden scroll-smooth" });
     const inputArea = this.createInputArea();
     const statusBar = this.createStatusBar();
     this.overlayEl = el("div", { className: "fixed inset-0 bg-black/50 z-200 flex items-center justify-center backdrop-blur-sm hidden" });
-    this.root.append(header, agentBar, this.sessionsPanel, this.chatArea, inputArea, statusBar, this.overlayEl);
+    this.root.append(header, agentBar, this.sessionsPanel, this.searchBarEl, this.chatArea, inputArea, statusBar, this.overlayEl);
     this.renderMessages();
     this.renderSessionList();
     this.renderModels();
@@ -663,6 +692,9 @@ class App {
 
     container.appendChild(this.variantPopup);
 
+    this.fileChipsEl = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant hidden" });
+    inner.appendChild(this.fileChipsEl);
+
     const inputMain = el("div", { className: "flex items-end" });
     this.inputTextarea = el("textarea", { placeholder: "Ask a question or type /", rows: "1" }) as HTMLTextAreaElement;
     this.inputTextarea.className = "flex-1 bg-transparent text-on-surface border-none px-3.5 py-2.5 resize-none text-body min-h-[40px] max-h-[140px] outline-none leading-relaxed placeholder:text-on-surface-variant/50";
@@ -861,13 +893,48 @@ class App {
 
     this.statusDot = el("span", { className: "dot w-1.5 h-1.5 rounded-full shrink-0 ready" });
     this.statusText = el("span", { style: "flex:1" }, [txt("Ready")]);
-    bar.append(this.infoBtn, this.statusDot, this.statusText);
+    this.tokenDisplayEl = el("span", { className: "shrink-0 text-xs text-on-surface-variant/60 hidden" });
+    bar.append(this.infoBtn, this.statusDot, this.statusText, this.tokenDisplayEl);
     return bar;
   }
 
   private setStatus(state: "ready" | "busy" | "error", text: string): void {
     this.statusDot.className = "w-1.5 h-1.5 rounded-full shrink-0 " + state;
     this.statusText.textContent = text;
+  }
+
+  private computeTokenTotal(): { tokens: number; cost: number } {
+    let totalTokens = 0;
+    let totalCost = 0;
+    for (const msg of this.state.messages) {
+      if (msg.parts) {
+        for (const part of msg.parts as any[]) {
+          if (part.type === "step-finish") {
+            const t = part.tokens;
+            if (t) {
+              totalTokens += t.total || (t.input || 0) + (t.output || 0) + (t.reasoning || 0);
+            }
+            if (part.cost) totalCost += part.cost;
+          }
+        }
+      }
+    }
+    return { tokens: totalTokens, cost: totalCost };
+  }
+
+  private updateTokenDisplay(): void {
+    const { tokens, cost } = this.computeTokenTotal();
+    if (!tokens && !cost) {
+      this.tokenDisplayEl.classList.add("hidden");
+      return;
+    }
+    this.tokenDisplayEl.classList.remove("hidden");
+    const parts: string[] = [];
+    if (tokens) {
+      parts.push(tokens >= 1000 ? (tokens / 1000).toFixed(1) + "k tokens" : tokens + " tokens");
+    }
+    if (cost) parts.push("$" + cost.toFixed(4));
+    this.tokenDisplayEl.textContent = " \u00B7 " + parts.join(" \u00B7 ");
   }
 
   private showDiffModal(sessionId: string): void {
@@ -994,6 +1061,8 @@ class App {
   }
 
   private renderMessages(): void {
+    this.searchMatches = [];
+    this.searchActiveIdx = -1;
     this.chatArea.innerHTML = "";
     if (!this.state.messages.length) {
       this.chatArea.appendChild(el("div", { className: "empty" }, [
@@ -1473,6 +1542,10 @@ class App {
       fileRefs.push(name);
       return _match;
     });
+    for (const f of this.state.attachedFiles) {
+      if (!fileRefs.includes(f)) fileRefs.push(f);
+    }
+
     promptText = promptText.trim();
 
     if (!promptText && !fileRefs.length) return;
@@ -1483,6 +1556,8 @@ class App {
     this.updateRunningState();
     this.setStatus("busy", isSlash ? "Running command..." : "Waiting for response...");
     this.streamingMsgEl = null;
+    this.state.showSessions = false;
+    this.sessionsPanel.classList.add("hidden");
     vscode.postMessage({
       type: "send-message",
       text: promptText,
@@ -1500,6 +1575,8 @@ class App {
     this.state.showSessions = true;
     this.sessionsPanel.classList.remove("hidden");
     this.state.messages = [];
+    this.state.attachedFiles = [];
+    this.renderFileChips();
     this.renderMessages();
     this.renderSessionList();
     this.inputTextarea.focus();
@@ -1583,6 +1660,7 @@ class App {
           this.renderMessages();
           this.renderSessionList();
           this.setStatus("ready", "Ready");
+          this.updateTokenDisplay();
           break;
         case "new-session-ready":
           console.log("[webview] new-session-ready");
@@ -1606,6 +1684,7 @@ class App {
           this.finalizeStreaming();
           this.state.messages.push({ role: "assistant", content: this.streamingContent || "Error: " + (msg.message as string) });
           this.renderMessages();
+          this.updateTokenDisplay();
           this.state.isRunning = false;
           this.streamingContent = "";
           this.streamingSaved = false;
@@ -1615,9 +1694,19 @@ class App {
         case "response-end":
           console.log(`[webview] response-end streamingContentLen=${this.streamingContent.length} saved=${this.streamingSaved}`);
           this.finalizeStreaming();
-          if (this.streamingContent && !this.streamingSaved) {
-            this.state.messages.push({ role: "assistant", content: this.streamingContent });
-            this.renderMessages();
+          if (this.streamingContent) {
+            if (!this.streamingSaved) {
+              this.state.messages.push({ role: "assistant", content: this.streamingContent });
+              this.renderMessages();
+              this.updateTokenDisplay();
+            } else {
+              const last = this.state.messages[this.state.messages.length - 1];
+              if (!last?.content && this.streamingContent.trim()) {
+                this.state.messages.push({ role: "assistant", content: this.streamingContent });
+                this.renderMessages();
+                this.updateTokenDisplay();
+              }
+            }
           }
           this.state.isRunning = false;
           this.streamingContent = "";
@@ -1632,13 +1721,21 @@ class App {
         case "aborted":
           console.log("[webview] aborted");
           this.finalizeStreaming();
-          if (this.streamingContent && !this.streamingSaved) {
-            this.state.messages.push({ role: "assistant", content: this.streamingContent });
+          if (this.streamingContent) {
+            if (!this.streamingSaved) {
+              this.state.messages.push({ role: "assistant", content: this.streamingContent });
+            } else {
+              const last = this.state.messages[this.state.messages.length - 1];
+              if (!last?.content && this.streamingContent.trim()) {
+                this.state.messages.push({ role: "assistant", content: this.streamingContent });
+              }
+            }
           }
           this.state.isRunning = false;
           this.streamingContent = "";
           this.streamingSaved = false;
           this.renderMessages();
+          this.updateTokenDisplay();
           this.updateRunningState();
           this.setStatus("ready", "Aborted");
           break;
@@ -1648,7 +1745,16 @@ class App {
           const wrapped = /[┌│└┐┘]/.test(txt) ? "```\n" + txt + "\n```" : txt;
           this.state.messages.push({ role: "assistant", content: wrapped });
           this.renderMessages();
+          this.updateTokenDisplay();
           this.setStatus("ready", "Ready");
+          break;
+        }
+        case "active-file": {
+          const fp = (msg.path as string) || "";
+          if (fp !== this.activeFile) {
+            this.activeFile = fp;
+            this.renderFileChips();
+          }
           break;
         }
         case "files":
@@ -1734,13 +1840,17 @@ class App {
           const textParts = (parts as any[]).filter((p: any) => p.type === "text" || p.type === "reasoning");
           text = textParts.map((p: any) => p.text || "").join("\n");
         }
+        const hasVisible = !!(text || (parts && (parts as any[]).some((p: any) => p.type === "text" || p.type === "reasoning" || p.type === "content")));
         const model = (event.modelID as string) || (info.modelID as string) || (info.model && (info.model as any).modelID) || "";
         const time = (event.time && (event.time as any).created ? Number((event.time as any).created) : undefined) || (info.time && (info.time as any).created ? Number((info.time as any).created) : undefined);
-        if (text || parts.length) {
+        if (hasVisible && text) {
           this.streamingSaved = true;
           this.state.messages.push({ role, content: text, parts, model, time });
           if (this.streamingMsgEl) { this.streamingMsgEl.remove(); this.streamingMsgEl = null; }
           this.appendMessageDOM(role, text, parts, model, time);
+          this.updateTokenDisplay();
+        } else if (text) {
+          this.appendStreaming(text);
         }
       } else if (type === "tool_use_start" || type === "tool_use.start" || type === "tool-start") {
         if (name === "question" || name === "ask") {
@@ -1814,10 +1924,113 @@ class App {
     }
   }
 
+  private renderFileChips(): void {
+    this.fileChipsEl.innerHTML = "";
+    const chips: { path: string; attached: boolean }[] = [];
+    for (const f of this.state.attachedFiles) {
+      if (!chips.some(c => c.path === f)) chips.push({ path: f, attached: true });
+    }
+    if (this.activeFile && !chips.some(c => c.path === this.activeFile)) {
+      chips.push({ path: this.activeFile, attached: false });
+    }
+    if (!chips.length) { this.fileChipsEl.classList.add("hidden"); return; }
+    this.fileChipsEl.classList.remove("hidden");
+    for (const c of chips) {
+      const name = c.path.split(/[\\/]/).pop() || c.path;
+      const chip = el("button", {
+        className: "inline-flex items-center gap-1 text-xs rounded-md px-2 py-0.5 cursor-pointer border transition-all duration-150 shrink-0" +
+          (c.attached ? " bg-primary-container/20 text-primary border-primary-container" : " bg-surface-container-low text-on-surface-variant border-outline-variant hover:border-primary hover:text-primary"),
+        title: c.path,
+      });
+      chip.innerHTML = (c.attached ? "&#x2715;" : "&#x2295;") + " " + name;
+      chip.onclick = () => this.toggleFileAttachment(c.path);
+      this.fileChipsEl.appendChild(chip);
+    }
+  }
+
+  private toggleFileAttachment(path: string): void {
+    const idx = this.state.attachedFiles.indexOf(path);
+    if (idx >= 0) {
+      this.state.attachedFiles.splice(idx, 1);
+    } else {
+      this.state.attachedFiles.push(path);
+    }
+    this.renderFileChips();
+  }
+
+  private toggleSearch(show?: boolean): void {
+    const open = show ?? this.searchBarEl.classList.contains("hidden");
+    this.searchBarEl.classList.toggle("hidden", !open);
+    if (open) {
+      this.searchInput.value = "";
+      this.searchInput.focus();
+      this.doSearch("");
+    } else {
+      this.searchInput.value = "";
+      this.doSearch("");
+      this.searchBarEl.classList.add("hidden");
+    }
+  }
+
+  private doSearch(query: string): void {
+    this.searchMatches = [];
+    this.searchActiveIdx = -1;
+    const msgs = this.chatArea.querySelectorAll<HTMLElement>(".msg");
+    if (!query) {
+      msgs.forEach(m => { m.classList.remove("search-match", "search-active"); });
+      this.searchNavEl.textContent = "0/0";
+      return;
+    }
+    const q = query.toLowerCase();
+    let idx = 0;
+    msgs.forEach(m => {
+      const text = (m.textContent || "").toLowerCase();
+      if (text.includes(q)) {
+        m.classList.add("search-match");
+        m.classList.remove("search-active");
+        this.searchMatches.push(m);
+      } else {
+        m.classList.remove("search-match", "search-active");
+      }
+    });
+    if (this.searchMatches.length) {
+      this.searchActiveIdx = 0;
+      this.searchMatches[0].classList.add("search-active");
+      this.searchMatches[0].scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    this.searchNavEl.textContent = this.searchMatches.length
+      ? (this.searchActiveIdx + 1) + "/" + this.searchMatches.length
+      : "0/0";
+  }
+
+  private searchNext(): void {
+    if (!this.searchMatches.length) return;
+    this.searchMatches[this.searchActiveIdx]?.classList.remove("search-active");
+    this.searchActiveIdx = (this.searchActiveIdx + 1) % this.searchMatches.length;
+    this.searchMatches[this.searchActiveIdx].classList.add("search-active");
+    this.searchMatches[this.searchActiveIdx].scrollIntoView({ behavior: "smooth", block: "center" });
+    this.searchNavEl.textContent = (this.searchActiveIdx + 1) + "/" + this.searchMatches.length;
+  }
+
+  private searchPrev(): void {
+    if (!this.searchMatches.length) return;
+    this.searchMatches[this.searchActiveIdx]?.classList.remove("search-active");
+    this.searchActiveIdx = (this.searchActiveIdx - 1 + this.searchMatches.length) % this.searchMatches.length;
+    this.searchMatches[this.searchActiveIdx].classList.add("search-active");
+    this.searchMatches[this.searchActiveIdx].scrollIntoView({ behavior: "smooth", block: "center" });
+    this.searchNavEl.textContent = (this.searchActiveIdx + 1) + "/" + this.searchMatches.length;
+  }
+
   private listen(): void {
     window.addEventListener("message", (event) => {
       console.log("[webview] raw message event received", event.data);
       this.handleMessage(event.data as Record<string, unknown>);
+    });
+    document.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        this.toggleSearch();
+      }
     });
     console.log("[webview] listener attached");
   }

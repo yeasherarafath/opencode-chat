@@ -84,6 +84,10 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
       this.handleMessage(msg).catch((e) => this.log(`handleMessage error: ${e}`));
     });
 
+    this.activeEditorSub = vscode.window.onDidChangeActiveTextEditor((editor) => {
+      const path = editor?.document.uri.fsPath || "";
+      try { this.view?.webview.postMessage({ type: "active-file", path }); } catch {}
+    });
     webviewView.onDidChangeVisibility(() => {
       this.log(`onDidChangeVisibility: visible=${webviewView.visible}`);
       if (webviewView.visible) {
@@ -94,6 +98,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
 
   private extensionUri: vscode.Uri = vscode.Uri.file("");
   private currentSessionId: string | undefined;
+  private activeEditorSub: vscode.Disposable | null = null;
 
   private async handleMessage(message: Record<string, unknown>): Promise<void> {
     if (!this.view) { this.log("handleMessage: no view, returning"); return; }
@@ -104,6 +109,10 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
       switch (type) {
         case "ready": {
           this.log("handleMessage: ready -> sendInitialState");
+          try {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) this.view.webview.postMessage({ type: "active-file", path: editor.document.uri.fsPath });
+          } catch {}
           try { await this.sendInitialState(); } catch (e) { this.log(`sendInitialState error: ${e}`); }
           try {
             const files = await vscode.workspace.findFiles("**/*", "{**/node_modules/**,**/.git/**}", 200);

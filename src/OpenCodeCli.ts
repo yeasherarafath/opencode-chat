@@ -515,6 +515,7 @@ export class OpenCodeCli {
       });
 
       let hasStarted = false;
+      const knownToolPartIds = new Set<string>();
 
       while (!this.sseAbortFlag) {
         let result: IteratorResult<unknown>;
@@ -551,8 +552,10 @@ export class OpenCodeCli {
             const state = part?.state as Record<string, unknown> | undefined;
             const toolName = part?.tool as string;
             const st = state?.status as string;
-            if (st === "running" || st === "pending") {
-              onEvent({ type: "tool-start", name: toolName, input: state?.input || {}, id: part?.id as string });
+            const partId = part?.id as string;
+            if ((st === "running" || st === "pending") && partId && !knownToolPartIds.has(partId)) {
+              knownToolPartIds.add(partId);
+              onEvent({ type: "tool-start", name: toolName, input: state?.input || {}, id: partId });
             } else if (st === "completed") {
               onEvent({ type: "tool-result", name: toolName, output: state?.output as string, content: state?.output as string, id: part?.id as string });
             } else if (st === "error") {
