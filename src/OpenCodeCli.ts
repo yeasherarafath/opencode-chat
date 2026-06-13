@@ -1,5 +1,5 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
-import { execFile } from "child_process";
+import { execFile, execFileSync } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
@@ -302,7 +302,7 @@ export class OpenCodeCli {
     if (this.serverProc) {
       const pid = this.serverProc.pid;
       if (os.platform() === "win32") {
-        try { execFile("taskkill", ["/F", "/T", "/PID", String(pid)]); } catch { /* ignore */ }
+        try { execFileSync("taskkill", ["/F", "/T", "/PID", String(pid)]); } catch { /* ignore */ }
       } else {
         try { process.kill(-pid, "SIGTERM"); } catch { /* ignore */ }
       }
