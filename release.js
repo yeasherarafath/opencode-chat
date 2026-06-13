@@ -62,7 +62,7 @@ function resolveVersion(bump) {
   const parts = current.split(".").map(Number);
 
   let next;
-  if (/^\d+\.\d+\.\d+$/.test(bump)) {
+  if (/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(bump)) {
     next = bump;
   } else if (bump === "major") {
     next = [parts[0] + 1, 0, 0].join(".");
