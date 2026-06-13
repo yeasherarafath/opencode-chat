@@ -117,6 +117,8 @@ export class OpenCodeCli {
   private serverPort = 4096;
   private serverHostname = "127.0.0.1";
   private serverTimeout = 15000;
+  private pureMode = false;
+  private serverProc: { pid: number; kill(): void } | null = null;
   private cwd = "";
 
   static setOutputChannel(ch: import("vscode").OutputChannel): void {
@@ -137,6 +139,10 @@ export class OpenCodeCli {
 
   setServerTimeout(t: number): void {
     this.serverTimeout = t > 0 ? t : 15000;
+  }
+
+  setPureMode(enabled: boolean): void {
+    this.pureMode = enabled;
   }
 
   setCwd(dir: string): void {
@@ -223,11 +229,15 @@ export class OpenCodeCli {
     if (binary) {
       try {
         this.log(`start: trying manual spawn with ${binary} serve`);
-        const proc = spawn(binary, ["serve", `--hostname=${hostname}`, `--port=0`, `--print-logs`, `--log-level=DEBUG`], {
+        const args = ["serve", `--hostname=${hostname}`, `--port=0`, `--print-logs`, `--log-level=DEBUG`];
+        if (this.pureMode) args.push("--pure");
+        const proc = spawn(binary, args, {
           stdio: "pipe",
           cwd: this.cwd || process.cwd(),
           env: { ...process.env, OPENCODE_SERVER_PASSWORD: serverPassword },
         });
+        this.serverProc = { pid: proc.pid as number, kill: () => proc.kill() };
+        proc.on("exit", () => { this.serverProc = null; });
         let stdoutBuf = "";
         let stderrBuf = "";
         const serverUrl = await new Promise<string>((resolve, reject) => {
@@ -284,10 +294,20 @@ export class OpenCodeCli {
 
   stop(): void {
     this.log("stop: closing server");
-    this.serverInstance?.close();
     this.serverInstance = null;
     this.client = null;
     this.serverUrl = "";
+
+    // tree-kill the server process (kills children like MCP, LSP too)
+    if (this.serverProc) {
+      const pid = this.serverProc.pid;
+      if (os.platform() === "win32") {
+        try { execFile("taskkill", ["/F", "/T", "/PID", String(pid)]); } catch { /* ignore */ }
+      } else {
+        try { process.kill(-pid, "SIGTERM"); } catch { /* ignore */ }
+      }
+      this.serverProc = null;
+    }
   }
 
   async checkInstall(): Promise<boolean> {
@@ -620,6 +640,14 @@ export class OpenCodeCli {
         else resolve(stdout.trim());
       });
     });
+  }
+
+  detach(): void {
+    this.log("detach: releasing server without killing");
+    this.serverInstance = null;
+    this.client = null;
+    this.serverUrl = "";
+    this.serverProc = null;
   }
 
   isRunning(): boolean {

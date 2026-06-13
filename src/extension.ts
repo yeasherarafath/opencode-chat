@@ -28,6 +28,9 @@ export async function activate(context: vscode.ExtensionContext) {
   const srvTimeout = cfg.get<number>("serverTimeout");
   if (srvTimeout) cli.setServerTimeout(srvTimeout);
 
+  const pureMode = cfg.get<boolean>("pureMode", false);
+  cli.setPureMode(pureMode);
+
   const provider = new OpenCodeViewProvider(context.extensionUri, cli);
 
   context.subscriptions.push(
@@ -61,6 +64,15 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-  if (outputChannel) outputChannel.appendLine("[OpenCode Chat] Deactivating - stopping server");
-  if (cli) cli.stop();
+  const cfg = vscode.workspace.getConfiguration("opencode-chat");
+  const cleanup = cfg.get<boolean>("cleanupOnDeactivate", true);
+  if (outputChannel) outputChannel.appendLine(`[OpenCode Chat] Deactivating - stopping server (cleanup=${cleanup})`);
+  if (cli) {
+    if (cleanup) {
+      cli.stop();
+    } else {
+      // detach: let the server keep running for other windows
+      cli.detach();
+    }
+  }
 }

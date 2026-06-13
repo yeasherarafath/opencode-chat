@@ -85,6 +85,16 @@
           "type": "number",
           "default": 15000,
           "description": "Max milliseconds to wait for the opencode server to start."
+        },
+        "opencode-chat.pureMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run opencode in pure mode (no external plugins). Reduces subprocess count and memory usage."
+        },
+        "opencode-chat.cleanupOnDeactivate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Kill the opencode server process tree when VS Code closes or the extension deactivates. Prevents orphaned processes."
         }
       }
     },
