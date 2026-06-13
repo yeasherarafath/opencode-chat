@@ -13,6 +13,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
   cli = new OpenCodeCli();
 
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (workspaceRoot) cli.setCwd(workspaceRoot);
+
   const cfg = vscode.workspace.getConfiguration("opencode-chat");
   const configPath = cfg.get<string>("cliPath") || "";
   if (configPath) {

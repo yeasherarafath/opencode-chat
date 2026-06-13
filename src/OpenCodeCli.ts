@@ -117,6 +117,7 @@ export class OpenCodeCli {
   private serverPort = 4096;
   private serverHostname = "127.0.0.1";
   private serverTimeout = 15000;
+  private cwd = "";
 
   static setOutputChannel(ch: import("vscode").OutputChannel): void {
     OpenCodeCli.outputChannel = ch;
@@ -136,6 +137,10 @@ export class OpenCodeCli {
 
   setServerTimeout(t: number): void {
     this.serverTimeout = t > 0 ? t : 15000;
+  }
+
+  setCwd(dir: string): void {
+    this.cwd = dir;
   }
 
   private log(msg: string): void {
@@ -220,6 +225,7 @@ export class OpenCodeCli {
         this.log(`start: trying manual spawn with ${binary} serve`);
         const proc = spawn(binary, ["serve", `--hostname=${hostname}`, `--port=0`, `--print-logs`, `--log-level=DEBUG`], {
           stdio: "pipe",
+          cwd: this.cwd || process.cwd(),
           env: { ...process.env, OPENCODE_SERVER_PASSWORD: serverPassword },
         });
         let stdoutBuf = "";
@@ -606,7 +612,7 @@ export class OpenCodeCli {
   async runCliCommand(args: string[]): Promise<string> {
     const { execFile } = await import("child_process");
     return new Promise((resolve, reject) => {
-      execFile("opencode", args, { maxBuffer: 10 * 1024 * 1024, timeout: 30000 }, (err, stdout, stderr) => {
+      execFile("opencode", args, { cwd: this.cwd || process.cwd(), maxBuffer: 10 * 1024 * 1024, timeout: 30000 }, (err, stdout, stderr) => {
         if (err) reject(new Error(stderr.trim() || err.message));
         else resolve(stdout.trim());
       });
