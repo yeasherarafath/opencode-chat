@@ -1067,7 +1067,7 @@ class App {
     if (!this.state.messages.length) {
       this.chatArea.appendChild(el("div", { className: "empty" }, [
         txt("Start a conversation with OpenCode."),
-        el("div", { className: "cmd-hint" }, [txt("Type / for commands · Cmd ▼ for actions")]),
+        el("div", { className: "cmd-hint" }, [txt("Type / for commands · Ctrl+F to search · Cmd ▼ for actions")]),
       ]));
       return;
     }

@@ -10,22 +10,52 @@ A full-featured chat UI for [OpenCode](https://opencode.ai) — the AI coding ag
 
 ## Features
 
-- **Chat UI** — Full conversational interface in the VS Code sidebar with streaming responses
-- **Agent Modes** — Switch between agent modes (Plan, Build, Review, etc.) with one click
-- **Model Selection** — Searchable model picker grouped by provider
+### Core
+- **Chat UI** — Full conversational interface with streaming responses, markdown rendering, and syntax-highlighted code blocks
+- **Agent Modes** — Switch between agents (Plan, Build, Review, etc.) with one click
+- **Model Selection** — Searchable model picker grouped by provider with key status indicators
 - **Effort Variants** — Choose response effort: Balanced, High, Max, Minimal, Medium, Low
-- **Session Management** — View, search, rename, share, fork, summarize, and delete sessions with time-based grouping (Today / Yesterday / Earlier)
-- **Slash Commands** — 15+ built-in commands (`/help`, `/diff`, `/fork`, `/share`, `/review`, `/sessions`, `/skills`, `/mcps`, etc.)
-- **File Attachment** — Attach workspace files via `@` menu or file picker
-- **Code Highlighting** — Built-in syntax highlighting for code blocks with copy button
-- **Markdown Rendering** — Full markdown support including tables, lists, headings, code blocks, links, and formatting
-- **Diff Viewer** — View session file changes inline with add/delete stats
-- **Provider Management** — View configured providers, their API key status, and model counts
-- **Session Export** — Export any session as JSON
-- **Session State Info** — Modal showing CLI status, version, session IDs, model, agent, and more
-- **Abort** — Stop running responses instantly
+- **Streaming Responses** — Real-time token-by-token streaming with reasoning display
+- **Abort** — Stop running responses instantly at any time
+
+### Session Management
+- **Session List** — Browse all sessions with time-based grouping (Today / Yesterday / Earlier)
+- **Search Sessions** — Filter sessions by name or content via the search input
+- **Rename** — Rename any session inline
+- **Fork** — Fork a session to branch off a new conversation
+- **Share** — Share sessions with others
+- **Diff** — View session file changes inline with add/delete stats
+- **Summarize** — Compact session history
+- **Export** — Export any session as JSON
+- **Delete** — Remove unwanted sessions
 - **New Chat** — Start fresh conversations with a single click
+
+### Message Tools
+- **Message Search** — Press `Ctrl+F` / `Cmd+F` to search within the current chat with match navigation (up/down arrows)
+- **Copy Message** — Copy individual message content
+- **Revert Message** — Revert to a previous version of a message
+- **Fork from Message** — Fork a session starting from a specific message
+
+### Commands & Input
+- **Slash Commands** — Type `/` to browse and run 15+ built-in commands (help, diff, fork, share, review, sessions, skills, mcps, etc.)
+- **File Attachment** — Attach workspace files via `@` mention menu or attachment icon file picker
+- **Question Prompts** — Interactive question flows for plan/ask workflows with textareas and submit buttons
+
+### Display & UI
+- **Markdown Rendering** — Full markdown including tables, lists, headings, code blocks, links, images, and formatting
+- **Code Highlighting** — Built-in syntax highlighting for 40+ languages with copy-to-clipboard
+- **Thinking/Reasoning** — Visual spinner indicator during model reasoning with smooth transitions to final output
+- **Inline Tool Status** — Task cards showing running and completed tool calls inline
+- **Token & Cost Tracking** — Token usage and cost per message, displayed in the status bar
+- **File Display** — Inline file content rendering with language labels
+- **Session State Info** — Modal showing CLI status, version, session IDs, model, agent, and more
 - **Dark Theme** — Custom dark design that matches VS Code aesthetics
+- **Responsive Layout** — Adapts to sidebar width with scrollable chat area
+
+### Provider Management
+- **Provider List** — View all configured providers with API key status (connected/missing)
+- **Model Count** — See how many models each provider offers
+- **Multi-Provider** — Works with any provider configured in the opencode CLI
 
 ## Requirements
 
@@ -48,6 +78,10 @@ opencode-chat.cliPath
 3. Select an agent mode and model from the toolbar
 4. Type a message and press Enter (or click the send button)
 5. View responses in real-time with streaming text, reasoning, and tool calls
+
+### Searching Messages
+
+Press `Ctrl+F` (or `Cmd+F` on macOS) to open the message search bar. Navigate matches with Enter/Shift+Enter or the arrow buttons. Press Escape to close.
 
 ### Slash Commands
 
@@ -76,6 +110,14 @@ Type `/` in the input to browse available commands:
 
 Type `@` in the input to browse and attach workspace files to your message. You can also click the attachment icon in the input toolbar to open a file picker.
 
+### Session Management
+
+- Click the **Chat Sessions** button in the header or the clipboard icon to toggle the session list
+- Hover over a session to reveal actions: Rename, Share, Diff, Delete
+- Use the search box above the session list to filter by name
+- Click **New Chat** to start a fresh conversation
+- Sessions are grouped by Today, Yesterday, and Earlier
+
 ### Commands
 
 | Command | Description |
@@ -103,7 +145,7 @@ The extension communicates with the `opencode` CLI by spawning it as a subproces
 src/
   extension.ts              # Extension entry point & activation
   OpenCodeCli.ts            # CLI subprocess wrapper & SDK client
-  OpenCodeViewProvider.ts   # Webview provider & message handling
+  OpenCodeViewProvider.ts   # Webview provider & message relaying
   webview/
     app.ts                  # Chat UI (Vanilla TypeScript + Tailwind CSS)
 ```
