@@ -25,9 +25,9 @@ const DRY_RUN = args.includes("--dry-run");
 const FORCE = args.includes("--force");
 
 function run(cmd, opts = {}) {
-  const write = opts.write !== false;
-  const label = write && DRY_RUN ? "  ~ " : "  $ ";
-  if (write && DRY_RUN) { console.log(label + cmd); return ""; }
+  const skip = opts.skip === true;
+  const label = skip && DRY_RUN ? "  ~ " : "  $ ";
+  if (skip && DRY_RUN) { console.log(label + cmd); return ""; }
   console.log(label + cmd);
   return execSync(cmd, { encoding: "utf8", stdio: opts.silent ? "pipe" : "inherit", ...opts }).trim();
 }
@@ -97,12 +97,15 @@ function main() {
   console.log("\n  [1/5] Update version...");
   const pkg = readPkg();
   pkg.version = next;
-  if (!DRY_RUN) writePkg(pkg);
+  if (!DRY_RUN) {
+    writePkg(pkg);
+    console.log(`  Wrote package.json: ${current} -> ${next}`);
+  }
 
   // -- 2. Build
   console.log("  [2/5] Build...");
   try {
-    run("npm run build");
+    run("npm run build", { skip: true });
   } catch {
     if (!DRY_RUN) {
       pkg.version = current;
@@ -116,7 +119,7 @@ function main() {
   const vsixName = `${pkg.name}-${next}.vsix`;
   const vsixPath = path.join(__dirname, vsixName);
   try {
-    run(`npx vsce package --out "${vsixPath}"`);
+    run(`npx vsce package --out "${vsixPath}"`, { skip: true });
   } catch {
     if (!DRY_RUN) {
       pkg.version = current;
@@ -127,21 +130,21 @@ function main() {
 
   // -- 4. Commit & tag
   console.log("  [4/5] Commit & tag...");
-  run(`git add package.json`);
-  run(`git commit -m "chore: release v${next}"`);
-  run(`git tag "${tag}"`);
+  run(`git add package.json`, { skip: true });
+  run(`git commit -m "chore: release v${next}"`, { skip: true });
+  run(`git tag "${tag}"`, { skip: true });
 
   // -- 5. Push & GitHub release
   console.log("  [5/5] Push & GitHub release...");
   const remote = run("git remote", { silent: true });
   if (remote) {
-    run(`git push origin ${BRANCH} --tags`);
+    run(`git push origin ${BRANCH} --tags`, { skip: true });
   } else {
     console.log("  No remote — skipping push.");
   }
 
   try {
-    run(`gh release create "${tag}" "${vsixPath}" --title "v${next}" --generate-notes`);
+    run(`gh release create "${tag}" "${vsixPath}" --title "v${next}" --generate-notes`, { skip: true });
   } catch {
     console.log("  gh CLI unavailable — skipping GitHub release.");
   }
