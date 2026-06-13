@@ -13,7 +13,7 @@
  *   node release.js [version] [--dry-run] [--force]
  */
 
-const { execSync } = require("child_process");
+const { execSync, spawnSync } = require("child_process");
 const { readFileSync, writeFileSync } = require("fs");
 const path = require("path");
 
@@ -24,12 +24,18 @@ const BUMP = args.find(a => /^[\d.]+$|^patch$|^minor$|^major$/.test(a)) || "patc
 const DRY_RUN = args.includes("--dry-run");
 const FORCE = args.includes("--force");
 
-function run(cmd, opts = {}) {
-  const skip = opts.skip === true;
-  const label = skip && DRY_RUN ? "  ~ " : "  $ ";
-  if (skip && DRY_RUN) { console.log(label + cmd); return ""; }
-  console.log(label + cmd);
-  return execSync(cmd, { encoding: "utf8", stdio: opts.silent ? "pipe" : "inherit", ...opts }).trim();
+function sh(cmd) {
+  console.log("  $ " + cmd);
+  const r = spawnSync(cmd, [], { stdio: "inherit", shell: true, windowsHide: true });
+  if (r.error) throw r.error;
+  if (r.status !== 0) throw new Error(`exit code ${r.status}`);
+  return r.stdout ? r.stdout.toString().trim() : "";
+}
+
+function shOut(cmd) {
+  const r = spawnSync(cmd, [], { stdio: "pipe", shell: true, windowsHide: true });
+  if (r.error) throw r.error;
+  return r.stdout ? r.stdout.toString().trim() : "";
 }
 
 function bail(msg) {
@@ -43,6 +49,11 @@ function readPkg() {
 
 function writePkg(pkg) {
   writeFileSync(PKG_PATH, JSON.stringify(pkg, null, 2) + "\n");
+}
+
+function exec(cmd) {
+  if (DRY_RUN) { console.log("  ~ " + cmd); return ""; }
+  return sh(cmd);
 }
 
 function resolveVersion(bump) {
@@ -64,12 +75,12 @@ function resolveVersion(bump) {
 }
 
 function main() {
-  const BRANCH = run("git branch --show-current", { silent: true });
+  const BRANCH = shOut("git branch --show-current");
 
   console.log("\n  === OpenCode Chat Release ===\n");
 
   // -- Safety: clean working tree
-  const status = run("git status --porcelain", { silent: true });
+  const status = shOut("git status --porcelain");
   if (status) {
     bail(`Working tree has uncommitted changes:\n${status.replace(/^/gm, "    ")}`);
   }
@@ -83,7 +94,7 @@ function main() {
   const { current, next } = resolveVersion(BUMP);
   const tag = TAG_PREFIX + next;
 
-  const existing = run("git tag --list", { silent: true }).split("\n");
+  const existing = shOut("git tag --list").split("\n");
   if (existing.includes(tag)) {
     bail(`Tag "${tag}" already exists.`);
   }
@@ -105,13 +116,13 @@ function main() {
   // -- 2. Build
   console.log("  [2/5] Build...");
   try {
-    run("npm run build", { skip: true });
-  } catch {
+    exec("npm run build");
+  } catch (e) {
     if (!DRY_RUN) {
       pkg.version = current;
       writePkg(pkg);
     }
-    bail("Build failed. Version reverted.");
+    bail("Build failed: " + (e.message || e) + ". Version reverted.");
   }
 
   // -- 3. Package VSIX
@@ -119,32 +130,32 @@ function main() {
   const vsixName = `${pkg.name}-${next}.vsix`;
   const vsixPath = path.join(__dirname, vsixName);
   try {
-    run(`npx vsce package --out "${vsixPath}"`, { skip: true });
-  } catch {
+    exec(`npx vsce package --out "${vsixPath}"`);
+  } catch (e) {
     if (!DRY_RUN) {
       pkg.version = current;
       writePkg(pkg);
     }
-    bail("vsce packaging failed. Version reverted.");
+    bail("vsce packaging failed: " + (e.message || e) + ". Version reverted.");
   }
 
   // -- 4. Commit & tag
   console.log("  [4/5] Commit & tag...");
-  run(`git add package.json`, { skip: true });
-  run(`git commit -m "chore: release v${next}"`, { skip: true });
-  run(`git tag "${tag}"`, { skip: true });
+  exec(`git add package.json`);
+  exec(`git commit -m "chore: release v${next}"`);
+  exec(`git tag "${tag}"`);
 
   // -- 5. Push & GitHub release
   console.log("  [5/5] Push & GitHub release...");
-  const remote = run("git remote", { silent: true });
+  const remote = shOut("git remote");
   if (remote) {
-    run(`git push origin ${BRANCH} --tags`, { skip: true });
+    exec(`git push origin ${BRANCH} --tags`);
   } else {
     console.log("  No remote — skipping push.");
   }
 
   try {
-    run(`gh release create "${tag}" "${vsixPath}" --title "v${next}" --generate-notes`, { skip: true });
+    exec(`gh release create "${tag}" "${vsixPath}" --title "v${next}" --generate-notes`);
   } catch {
     console.log("  gh CLI unavailable — skipping GitHub release.");
   }
