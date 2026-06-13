@@ -295,8 +295,11 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
 
   private async sendInitialState(): Promise<void> {
     if (!this.view) { this.log("sendInitialState: no view, skip"); return; }
+    const cfg = vscode.workspace.getConfiguration("opencode-chat");
+    const defaultModel = cfg.get<string>("defaultModel") || "";
+    const defaultAgent = cfg.get<string>("defaultAgent") || "";
     this.log(`sendInitialState: posting state isInstalled=${this.isInstalled} version=${this.opencodeVersion}`);
-    this.view.webview.postMessage({ type: "state", isInstalled: this.isInstalled, opencodeVersion: this.opencodeVersion });
+    this.view.webview.postMessage({ type: "state", isInstalled: this.isInstalled, opencodeVersion: this.opencodeVersion, defaultModel, defaultAgent });
     if (!this.isInstalled) { this.log("sendInitialState: not installed, skip refresh"); return; }
     this.log("sendInitialState: refreshing sessions/models/agents");
     try {

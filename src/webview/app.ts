@@ -1490,6 +1490,8 @@ class App {
           console.log(`[webview] state: isInstalled=${msg.isInstalled}, version=${msg.opencodeVersion}`);
           this.state.isInstalled = msg.isInstalled as boolean;
           this.state.opencodeVersion = (msg.opencodeVersion as string) || "";
+          if (msg.defaultModel) this.state.selectedModel = msg.defaultModel as string;
+          if (msg.defaultAgent) this.state.selectedAgent = msg.defaultAgent as string;
           this.render();
           break;
         case "state-info":

@@ -10,10 +10,17 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const cli = new OpenCodeCli();
 
-  const configPath = vscode.workspace.getConfiguration("opencode-chat").get<string>("cliPath") || "";
+  const cfg = vscode.workspace.getConfiguration("opencode-chat");
+  const configPath = cfg.get<string>("cliPath") || "";
   if (configPath) {
     cli.setBinaryPath(configPath);
   }
+  const srvPort = cfg.get<number>("serverPort");
+  if (srvPort) cli.setServerPort(srvPort);
+  const srvHost = cfg.get<string>("serverHostname");
+  if (srvHost) cli.setServerHostname(srvHost);
+  const srvTimeout = cfg.get<number>("serverTimeout");
+  if (srvTimeout) cli.setServerTimeout(srvTimeout);
 
   const provider = new OpenCodeViewProvider(context.extensionUri, cli);
 
