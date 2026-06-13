@@ -739,6 +739,9 @@ class App {
     const before = val.slice(0, cursor);
     const atIdx = before.lastIndexOf("@");
     if (atIdx >= 0 && (atIdx === 0 || before[atIdx - 1] === " " || before[atIdx - 1] === "\n")) {
+      if (!this.state.workspaceFiles.length) {
+        vscode.postMessage({ type: "get-files", pattern: "**/*", exclude: "**/node_modules/**,**/.git/**", maxResults: 200 });
+      }
       const query = before.slice(atIdx + 1).toLowerCase();
       this.renderAtMenu(query);
       this.atMenuEl.classList.remove("hidden");
@@ -753,9 +756,17 @@ class App {
 
   private renderAtMenu(query: string): void {
     this.atMenuEl.innerHTML = "";
+    const files = this.state.workspaceFiles || [];
+    console.log(`[webview] renderAtMenu: query="${query}", files=${files.length}`);
     const q = query.replace(/\//g, "\\");
-    const files = this.state.workspaceFiles.filter(f => !q || f.toLowerCase().includes(q));
-    if (files.length === 0) {
+    const matched = files.filter(f => !q || f.toLowerCase().includes(q));
+    console.log(`[webview] renderAtMenu: matched=${matched.length}`);
+    if (!matched.length) {
+      if (!files.length) {
+        const item = el("div", { className: "item" });
+        item.innerHTML = `<div class="cmd">Loading files...</div><div class="desc">Type more or browse</div>`;
+        this.atMenuEl.appendChild(item);
+      }
       const browse = el("div", { className: "item" });
       browse.innerHTML = `<div class="cmd">@file</div><div class="desc">Browse for file...</div>`;
       browse.onclick = () => {
@@ -765,20 +776,16 @@ class App {
       this.atMenuEl.appendChild(browse);
       return;
     }
-    for (const f of files.slice(0, 20)) {
+    const limit = query ? 20 : 5;
+    for (const f of matched.slice(0, limit)) {
       const item = el("div", { className: "item" });
       const parts = f.split(/[\\/]/);
       const name = parts.pop() || f;
-      let display: string;
-      let insertKey: string;
-      if (parts.length === 0) {
-        display = name;
-        insertKey = name;
-      } else {
-        const parent = parts[parts.length - 1];
-        display = parent + "/" + name;
-        insertKey = parent + "/" + name;
-      }
+      // show last 2 path segments for context (parent/child or enough to disambiguate)
+      const ctx = parts.slice(-2);
+      ctx.push(name);
+      const display = ctx.join("/");
+      const insertKey = display;
       const dir = parts.join("/") || ".";
       item.innerHTML = `<div class="cmd">@${display}</div><div class="desc">${dir}</div>`;
       item.onclick = () => {
@@ -1489,6 +1496,16 @@ class App {
         }
         case "files":
           this.state.workspaceFiles = msg.files as string[];
+          if (!this.atMenuEl.classList.contains("hidden")) {
+            const val = this.inputTextarea.value;
+            const cursor = this.inputTextarea.selectionStart;
+            const before = val.slice(0, cursor);
+            const atIdx = before.lastIndexOf("@");
+            if (atIdx >= 0) {
+              const query = before.slice(atIdx + 1).toLowerCase();
+              this.renderAtMenu(query);
+            }
+          }
           break;
         case "file-picked": {
           const fp = msg.path as string;
