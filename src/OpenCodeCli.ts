@@ -328,17 +328,17 @@ export class OpenCodeCli {
         // fall through to server check
       }
     }
-    if (!this.serverUrl) return "sdk";
+    if (!this.serverUrl) return "";
     try {
       const res = await fetch(`${this.serverUrl}/health`);
       if (res.ok) {
         const data = await res.json() as Record<string, unknown>;
-        return (data.version as string) || "sdk";
+        return (data.version as string) || "";
       }
     } catch {
       // fall through
     }
-    return "sdk";
+    return "";
   }
 
   getInstallUrl(): string {
@@ -525,6 +525,9 @@ export class OpenCodeCli {
         }
       }
 
+      // Start SSE connection BEFORE promptAsync to avoid losing events
+      let pendingSseEvent = iterator.next();
+
       await this.client!.session.promptAsync({
         path: { id: sessionId },
         body: {
@@ -540,7 +543,8 @@ export class OpenCodeCli {
       while (!this.sseAbortFlag) {
         let result: IteratorResult<unknown>;
         try {
-          result = await iterator.next();
+          result = await pendingSseEvent;
+          pendingSseEvent = iterator.next();
         } catch {
           if (hasStarted) break;
           throw new Error("SSE stream error");
@@ -556,7 +560,7 @@ export class OpenCodeCli {
           (props.info as Record<string, unknown>)?.sessionID as string ||
           props.sessionID as string;
 
-        if (eventSessionId !== sessionId) {
+        if (eventSessionId && eventSessionId !== sessionId) {
           if (!hasStarted) continue;
         }
 

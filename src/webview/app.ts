@@ -1565,6 +1565,7 @@ class App {
   private newSession(): void {
     this.state.currentSessionId = null;
     this.state.showSessions = true;
+    this.state.isRunning = false;
     this.sessionsPanel.classList.remove("hidden");
     this.state.messages = [];
     this.state.attachedFiles = [];
@@ -1572,6 +1573,8 @@ class App {
     this.renderMessages();
     this.renderSessionList();
     this.inputTextarea.focus();
+    this.updateRunningState();
+    this.setStatus("ready", "Ready");
   }
 
   private switchSession(id: string): void {

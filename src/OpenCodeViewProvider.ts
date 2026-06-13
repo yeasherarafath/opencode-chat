@@ -26,7 +26,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
       this.log(`initialize() start done, started=${started}`);
       if (started) {
         this.isInstalled = true;
-        try { this.opencodeVersion = await this.cli.getVersion(); } catch { this.opencodeVersion = "sdk"; }
+        try { this.opencodeVersion = await this.cli.getVersion(); } catch { this.opencodeVersion = ""; }
       }
     } catch (e) {
       this.log(`initialize() start threw: ${e}`);
@@ -437,8 +437,10 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
           try { this.view?.webview.postMessage({ type: "session-id", sessionId: sid }); }
           catch (e) { this.log(`sendMessage: session-id postMessage error: ${e}`); }
         }
-        try { this.view?.webview.postMessage({ type: "response-chunk", event }); }
-        catch (e) { this.log(`sendMessage: onEvent postMessage error: ${e}`); }
+        if ((event as any).type !== "sessionID") {
+          try { this.view?.webview.postMessage({ type: "response-chunk", event }); }
+          catch (e) { this.log(`sendMessage: onEvent postMessage error: ${e}`); }
+        }
       },
       (error) => {
         this.log(`sendMessage: onError: ${error.message}`);
