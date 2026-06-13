@@ -111,6 +111,9 @@ export class OpenCodeCli {
   private sseAbortFlag = false;
   private sseIterator: AsyncIterator<unknown> | null = null;
   private binaryPath = "opencode";
+  private serverPort = 4096;
+  private serverHostname = "127.0.0.1";
+  private serverTimeout = 15000;
 
   static setOutputChannel(ch: import("vscode").OutputChannel): void {
     OpenCodeCli.outputChannel = ch;
@@ -118,6 +121,18 @@ export class OpenCodeCli {
 
   setBinaryPath(p: string): void {
     this.binaryPath = p || "opencode";
+  }
+
+  setServerPort(p: number): void {
+    this.serverPort = p > 0 ? p : 4096;
+  }
+
+  setServerHostname(h: string): void {
+    this.serverHostname = h || "127.0.0.1";
+  }
+
+  setServerTimeout(t: number): void {
+    this.serverTimeout = t > 0 ? t : 15000;
   }
 
   private log(msg: string): void {
@@ -190,10 +205,14 @@ export class OpenCodeCli {
   }
 
   async start(): Promise<boolean> {
+    const hostname = this.serverHostname;
+    const port = this.serverPort;
+    const timeout = this.serverTimeout;
+
     // strategy 1: try createOpencode (uses cross-spawn)
     try {
-      this.log("start: trying createOpencode");
-      const { client, server } = await createOpencode({ timeout: 15000 });
+      this.log(`start: trying createOpencode (${hostname}:${port}, timeout=${timeout})`);
+      const { client, server } = await createOpencode({ hostname, port, timeout });
       this.client = client as import("@opencode-ai/sdk/client").OpencodeClient;
       this.serverInstance = server;
       this.serverUrl = server.url;
@@ -209,19 +228,17 @@ export class OpenCodeCli {
       const resolved = bin || await this.resolveBinary();
       if (resolved) {
         this.log(`start: trying manual spawn with ${resolved}`);
-        const port = 4096 + Math.floor(Math.random() * 1000);
-        const url = `http://127.0.0.1:${port}`;
-        const proc = execFile(resolved, ["serve", "--hostname=127.0.0.1", `--port=${port}`]);
+        const url = `http://${hostname}:${port}`;
+        const proc = execFile(resolved, ["serve", `--hostname=${hostname}`, `--port=${port}`]);
         await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            // server might already be up despite no output parsing — try health check
+          const t = setTimeout(() => {
             fetch(`${url}/health`).then(r => r.ok ? resolve() : reject(new Error("Not ready"))).catch(reject);
-          }, 5000);
-          const onData = () => { clearTimeout(timeout); resolve(); };
+          }, timeout);
+          const onData = () => { clearTimeout(t); resolve(); };
           proc.stdout?.on("data", onData);
           proc.stderr?.on("data", onData);
-          proc.on("exit", (code) => { clearTimeout(timeout); reject(new Error(`exit ${code}`)); });
-          proc.on("error", (err) => { clearTimeout(timeout); reject(err); });
+          proc.on("exit", (code) => { clearTimeout(t); reject(new Error(`exit ${code}`)); });
+          proc.on("error", (err) => { clearTimeout(t); reject(err); });
         });
         this.serverUrl = url;
         this.serverInstance = { url, close: () => { proc.kill(); (proc as any).stdio?.forEach((s: any) => s?.destroy?.()); } };
@@ -233,13 +250,14 @@ export class OpenCodeCli {
       this.log(`start: manual spawn FAILED: ${e}`);
     }
 
-    // strategy 3: connect to an already-running server on default port
+    // strategy 3: connect to an already-running server
     try {
-      this.log("start: trying existing server at 127.0.0.1:4096");
-      const res = await fetch("http://127.0.0.1:4096/health");
+      const url = `http://${hostname}:${port}`;
+      this.log(`start: trying existing server at ${url}`);
+      const res = await fetch(`${url}/health`);
       if (res.ok) {
-        this.serverUrl = "http://127.0.0.1:4096";
-        this.client = createOpencodeClient({ baseUrl: this.serverUrl }) as import("@opencode-ai/sdk/client").OpencodeClient;
+        this.serverUrl = url;
+        this.client = createOpencodeClient({ baseUrl: url }) as import("@opencode-ai/sdk/client").OpencodeClient;
         this.log("start: connected to existing server");
         return true;
       }

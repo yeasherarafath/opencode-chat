@@ -680,14 +680,8 @@ class App {
     const left = el("div", { className: "flex items-center gap-0.5" });
     const attachBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-1 rounded-sm transition-all duration-150 flex items-center justify-center hover:text-primary hover:bg-white/4", title: "Attach file" });
     attachBtn.innerHTML = "<span class='icon'>&#x1F4CE;</span>";
+    attachBtn.onclick = () => vscode.postMessage({ type: "show-file-picker" });
     left.appendChild(attachBtn);
-    const ssBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-1 rounded-sm transition-all duration-150 flex items-center justify-center hover:text-primary hover:bg-white/4", title: "Screenshot" });
-    ssBtn.innerHTML = "<span class='icon'>&#x1F4F7;</span>";
-    left.appendChild(ssBtn);
-    left.appendChild(el("div", { className: "w-px h-3.5 bg-outline-variant mx-1" }));
-    const tokenBadge = el("div", { className: "flex items-center gap-1 text-label text-tertiary bg-surface-container-high px-2 py-0.5 rounded-full border border-outline-variant" });
-    tokenBadge.innerHTML = "<span class='icon'>&#x1F4CA;</span> 1.2k tokens";
-    left.appendChild(tokenBadge);
     footer.appendChild(left);
 
     const right = el("div", { className: "flex gap-1 items-center" });

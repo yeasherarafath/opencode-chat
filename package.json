@@ -36,6 +36,31 @@
           "type": "string",
           "default": "",
           "description": "Path to the opencode CLI binary. Leave empty to auto-detect."
+        },
+        "opencode-chat.defaultModel": {
+          "type": "string",
+          "default": "",
+          "description": "Default model ID (e.g. 'anthropic/claude-sonnet-4-20250514'). Empty = first available."
+        },
+        "opencode-chat.defaultAgent": {
+          "type": "string",
+          "default": "",
+          "description": "Default agent name (e.g. 'plan', 'build', 'review'). Empty = first available."
+        },
+        "opencode-chat.serverPort": {
+          "type": "number",
+          "default": 4096,
+          "description": "Port for the opencode server. Change if the default port is already in use."
+        },
+        "opencode-chat.serverHostname": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Hostname to bind the opencode server to."
+        },
+        "opencode-chat.serverTimeout": {
+          "type": "number",
+          "default": 15000,
+          "description": "Max milliseconds to wait for the opencode server to start."
         }
       }
     },
