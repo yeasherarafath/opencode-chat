@@ -2,7 +2,11 @@
 
 A full-featured chat UI for [OpenCode](https://opencode.ai) — the AI coding agent that runs in your terminal — now available as a VS Code sidebar extension.
 
-![OpenCode Chat in VS Code sidebar](media/icon.png)
+![Chat interface](media/chat.png)
+*Chat with agent modes, model selection, and streaming responses*
+
+![Landing page](media/landing.png)
+*Select old chat to continue or start new chat*
 
 ## Features
 

@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect width="64" height="64" rx="12" fill="var(--vscode-button-background, #0078d4)"/>
-  <path d="M20 20h24v4H24v6h16v4H24v6h20v4H20V20z" fill="white"/>
-  <circle cx="44" cy="44" r="8" fill="white" opacity="0.9"/>
-  <path d="M41 44h6M44 41v6" stroke="var(--vscode-button-background, #0078d4)" stroke-width="2" stroke-linecap="round"/>
-</svg>
