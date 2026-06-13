@@ -512,5 +512,40 @@ body {
 /* ===== Slash menu item ===== */
 .slash-menu .item.selected { background: rgba(173, 198, 255, .12); color: var(--primary); }
 
+/* ===== @ File menu ===== */
+.at-menu { min-width: 280px; max-width: 360px; }
+.at-menu .at-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; cursor: pointer;
+  font: var(--font-body-sm);
+  transition: background .1s;
+  border-bottom: 1px solid rgba(66, 71, 84, .3);
+  overflow: hidden;
+}
+.at-menu .at-item:last-child { border-bottom: none; }
+.at-menu .at-item:hover { background: rgba(173, 198, 255, .06); }
+.at-menu .at-icon {
+  flex-shrink: 0; width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; line-height: 1;
+}
+.at-menu .at-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.at-menu .at-name {
+  font: var(--font-body-sm); color: var(--on-surface);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.at-menu .at-dir {
+  font-size: 10px; color: var(--outline);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.at-menu .at-browse {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; cursor: pointer;
+  font: var(--font-label); color: var(--primary);
+  border-top: 1px solid var(--outline-variant);
+  transition: background .1s;
+}
+.at-menu .at-browse:hover { background: rgba(173, 198, 255, .06); }
+
 /* ===== Overlay / Modal ===== */
 .overlay.hidden { display: none; }

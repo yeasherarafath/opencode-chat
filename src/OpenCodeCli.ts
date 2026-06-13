@@ -475,15 +475,10 @@ export class OpenCodeCli {
         for (const fp of options.files) {
           try {
             const raw = await fs.promises.readFile(fp, "utf-8");
+            const fname = fp.split(/[\\/]/).pop() || fp;
             parts.push({
-              type: "file" as const,
-              mime: "text/plain",
-              url: fp,
-              source: {
-                type: "file" as const,
-                path: fp,
-                text: { value: raw, start: 0, end: raw.length },
-              },
+              type: "text" as const,
+              text: `\n\nFile: ${fname}\n\`\`\`\n${raw}\n\`\`\`\n`,
             });
             this.log(`runPrompt: attached file ${fp} (${raw.length} chars)`);
           } catch (e) {

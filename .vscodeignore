@@ -11,4 +11,6 @@ tailwind.config.js
 package-lock.json
 *.map
 design/
+release.js
+media/icon.svg
 .vscodeignore

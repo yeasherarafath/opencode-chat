@@ -93,7 +93,7 @@
         {
           "id": "opencode-chat",
           "title": "OpenCode Chat",
-          "icon": "media/icon.svg"
+          "icon": "media/icon.png"
         }
       ]
     },
@@ -125,7 +125,8 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "package": "vsce package",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "release": "node release.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

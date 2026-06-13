@@ -574,7 +574,7 @@ class App {
 
     this.slashMenuEl = el("div", { className: "absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-64 overflow-y-auto min-w-[220px] shadow-lg z-100 mb-1 hidden" });
     container.appendChild(this.slashMenuEl);
-    this.atMenuEl = el("div", { className: "absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-60 overflow-y-auto min-w-[240px] shadow-lg z-100 hidden" });
+    this.atMenuEl = el("div", { className: "at-menu absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-72 overflow-y-auto min-w-[260px] shadow-lg z-100 hidden" });
     container.appendChild(this.atMenuEl);
 
     const inputToolbar = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant" });
@@ -789,55 +789,67 @@ class App {
   private renderAtMenu(query: string): void {
     this.atMenuEl.innerHTML = "";
     const files = this.state.workspaceFiles || [];
-    console.log(`[webview] renderAtMenu: query="${query}", files=${files.length}`);
     const q = query.replace(/\//g, "\\");
     const matched = files.filter(f => !q || f.toLowerCase().includes(q));
-    console.log(`[webview] renderAtMenu: matched=${matched.length}`);
+
     if (!matched.length) {
       if (!files.length) {
-        const item = el("div", { className: "item" });
-        item.innerHTML = `<div class="cmd">Loading files...</div><div class="desc">Type more or browse</div>`;
+        const item = el("div", { className: "at-item" });
+        item.innerHTML = `<span class="at-icon file">📄</span><div class="at-body"><div class="at-name">Loading files...</div></div>`;
         this.atMenuEl.appendChild(item);
       }
-      const browse = el("div", { className: "item" });
-      browse.innerHTML = `<div class="cmd">@file</div><div class="desc">Browse for file...</div>`;
-      browse.onclick = () => {
-        vscode.postMessage({ type: "show-file-picker" });
-        this.hideAtMenu();
-      };
+      const browse = el("div", { className: "at-browse" });
+      browse.innerHTML = `<span>📂</span> Browse for file...`;
+      browse.onclick = () => { vscode.postMessage({ type: "show-file-picker" }); this.hideAtMenu(); };
       this.atMenuEl.appendChild(browse);
       return;
     }
-    const limit = query ? 20 : 5;
+
+    const limit = query ? 24 : 6;
+    let lastDir = "";
     for (const f of matched.slice(0, limit)) {
-      const item = el("div", { className: "item" });
       const parts = f.split(/[\\/]/);
       const name = parts.pop() || f;
-      // show last 2 path segments for context (parent/child or enough to disambiguate)
-      const ctx = parts.slice(-2);
-      ctx.push(name);
-      const display = ctx.join("/");
-      const insertKey = display;
       const dir = parts.join("/") || ".";
-      item.innerHTML = `<div class="cmd">@${display}</div><div class="desc">${dir}</div>`;
+
+      // directory header
+      if (dir !== lastDir && !query) {
+        lastDir = dir;
+        const hdr = el("div", { className: "at-item", style: "cursor:default;opacity:.5;font-size:10px;padding:4px 10px;text-transform:uppercase;letter-spacing:.04em" });
+        hdr.innerHTML = `<span class="at-icon folder">📁</span><span>${dir === "." ? "root" : dir}</span>`;
+        this.atMenuEl.appendChild(hdr);
+      }
+
+      const item = el("div", { className: "at-item" });
+      const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+      const iconMap: Record<string, string> = {
+        ts: "🟦", tsx: "⚛️", js: "🟨", jsx: "⚛️", json: "📋", css: "🎨", html: "🌐",
+        md: "📝", svg: "🖼️", png: "🖼️", jpg: "🖼️", ico: "🖼️",
+        py: "🐍", rs: "🦀", go: "🔵", java: "☕", rb: "💎", php: "🐘",
+        c: "⚙️", cpp: "⚙️", h: "📐", sh: "💲", bat: "💲", ps1: "💲",
+        yml: "📋", yaml: "📋", toml: "📋", env: "🔒", gitignore: "🙈",
+        lock: "🔒", vue: "💚", svelte: "🧡", astro: "🧡",
+      };
+      const icon = iconMap[ext] || "📄";
+      const shortDir = dir === "." ? "" : dir.length > 40 ? "…" + dir.slice(-38) : dir;
+
+      item.innerHTML = `<span class="at-icon file">${icon}</span><div class="at-body"><div class="at-name">${name}</div><div class="at-dir">${shortDir}</div></div>`;
       item.onclick = () => {
         const before = this.inputTextarea.value.slice(0, this.inputTextarea.selectionStart);
         const after = this.inputTextarea.value.slice(this.inputTextarea.selectionStart);
         const atIdx = before.lastIndexOf("@");
-        this.inputTextarea.value = before.slice(0, atIdx) + "@" + insertKey + " " + after;
+        this.inputTextarea.value = before.slice(0, atIdx) + "@" + f + " " + after;
         this.inputTextarea.focus();
-        const pos = before.slice(0, atIdx).length + insertKey.length + 2;
+        const pos = before.slice(0, atIdx).length + f.length + 2;
         this.inputTextarea.selectionStart = this.inputTextarea.selectionEnd = pos;
         this.hideAtMenu();
       };
       this.atMenuEl.appendChild(item);
     }
-    const browse = el("div", { className: "item" });
-    browse.innerHTML = `<div class="cmd">@file</div><div class="desc">Browse for file...</div>`;
-    browse.onclick = () => {
-      vscode.postMessage({ type: "show-file-picker" });
-      this.hideAtMenu();
-    };
+
+    const browse = el("div", { className: "at-browse" });
+    browse.innerHTML = `<span>📂</span> Browse for file...`;
+    browse.onclick = () => { vscode.postMessage({ type: "show-file-picker" }); this.hideAtMenu(); };
     this.atMenuEl.appendChild(browse);
   }
 
@@ -1440,25 +1452,32 @@ class App {
   }
 
   private send(): void {
-    let text = this.inputTextarea.value.trim();
-    if (!text || this.state.isRunning) return;
+    const raw = this.inputTextarea.value.trim();
+    if (!raw || this.state.isRunning) return;
     this.inputTextarea.value = "";
     this.inputTextarea.style.height = "auto";
-    const isSlash = text.startsWith("/");
-    // resolve @filename to full paths and collect file refs
+    const isSlash = raw.startsWith("/");
+
+    // collect file refs, build display text (with @refs) and prompt text (without @refs)
     const fileRefs: string[] = [];
-    text = text.replace(/(^|\s)@([\w.\-\\\/:]+)/g, (match, before, name) => {
+    let displayText = raw;
+    let promptText = raw;
+
+    promptText = promptText.replace(/(^|\s)@([\w.\-\\\/:]+)/g, (_match, before, name) => {
       const normalized = name.replace(/\//g, "\\");
       const found = this.state.workspaceFiles.find(f => f.endsWith(normalized) || f.endsWith(name));
       if (found) {
         fileRefs.push(found);
-        return before + "@" + found;
+        return before; // remove from prompt — content attached separately
       }
-      // if not in workspace files, it's a raw path from file-picker
       fileRefs.push(name);
-      return match;
+      return _match;
     });
-    this.state.messages.push({ role: "user", content: text });
+    promptText = promptText.trim();
+
+    if (!promptText && !fileRefs.length) return;
+
+    this.state.messages.push({ role: "user", content: displayText });
     this.renderMessages();
     this.state.isRunning = true;
     this.updateRunningState();
@@ -1466,7 +1485,7 @@ class App {
     this.streamingMsgEl = null;
     vscode.postMessage({
       type: "send-message",
-      text,
+      text: promptText,
       sessionId: this.state.currentSessionId || undefined,
       model: this.state.selectedModel || undefined,
       agent: this.state.selectedAgent || undefined,
