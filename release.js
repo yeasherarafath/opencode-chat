@@ -5,12 +5,14 @@
  *   node release.js                         # patch bump (0.1.0 -> 0.1.1)
  *   node release.js minor                   # 0.2.0
  *   node release.js major                   # 1.0.0
+ *   node release.js beta                    # next beta (0.1.1-beta.1, 0.1.1-beta.2, …)
  *   node release.js 0.2.0                   # explicit version
+ *   node release.js 0.2.0-beta.1            # explicit pre-release
  *   node release.js --dry-run               # preview only, no changes
  *   node release.js --force                 # bypass branch check
  *
  * All flags/args are positional:
- *   node release.js [version] [--dry-run] [--force]
+ *   node release.js [version|bump] [--dry-run] [--force]
  */
 
 const { execSync, spawnSync } = require("child_process");
@@ -20,7 +22,7 @@ const path = require("path");
 const PKG_PATH = path.join(__dirname, "package.json");
 const TAG_PREFIX = "v";
 const args = process.argv.slice(2);
-const BUMP = args.find(a => /^[\d][\d.]*(-[\w.]+)?$/u.test(a) || /^(patch|minor|major)$/.test(a)) || "patch";
+const BUMP = args.find(a => /^[\d][\d.]*(-[\w.]+)?$/u.test(a) || /^(patch|minor|major|beta)$/.test(a)) || "patch";
 const DRY_RUN = args.includes("--dry-run");
 const FORCE = args.includes("--force");
 
@@ -59,17 +61,25 @@ function exec(cmd) {
 function resolveVersion(bump) {
   const pkg = readPkg();
   const current = pkg.version;
-  const parts = current.split(".").map(Number);
+  const m = current.match(/^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/);
+
+  function core(a, b, c) { return [a, b, c].join("."); }
 
   let next;
   if (/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(bump)) {
     next = bump;
   } else if (bump === "major") {
-    next = [parts[0] + 1, 0, 0].join(".");
+    next = core(+m[1] + 1, 0, 0);
   } else if (bump === "minor") {
-    next = [parts[0], parts[1] + 1, 0].join(".");
+    next = core(m[1], +m[2] + 1, 0);
+  } else if (bump === "beta") {
+    if (m[4]) {
+      next = core(m[1], m[2], m[3]) + "-beta." + (+m[4] + 1);
+    } else {
+      next = core(m[1], m[2], +m[3] + 1) + "-beta.1";
+    }
   } else {
-    next = [parts[0], parts[1], parts[2] + 1].join(".");
+    next = core(m[1], m[2], +m[3] + 1);
   }
   return { current, next };
 }
