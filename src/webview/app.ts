@@ -352,6 +352,7 @@ class App {
   private streamingSaved = false;
   private slashMenuEl!: HTMLElement;
   private sessionSearchInput!: HTMLInputElement;
+  private sessionListEl!: HTMLElement;
   private atMenuEl!: HTMLElement;
   private filteredSlash: typeof SLASH_CMDS = [];
   private slashIdx = 0;
@@ -389,16 +390,18 @@ class App {
     const header = this.createHeader();
     const agentBar = this.createAgentBar();
     this.sessionsPanel = el("div", { className: "sessions-panel" });
-    this.sessionSearchInput = el("input", { className: "session-search hidden", placeholder: "Search sessions...", type: "text" }) as HTMLInputElement;
+    this.sessionSearchInput = el("input", { className: "session-search", placeholder: "Search chats...", type: "text" }) as HTMLInputElement;
     this.sessionSearchInput.oninput = () => {
       this.state.sessionFilter = this.sessionSearchInput.value;
       this.renderSessionList();
     };
+    this.sessionListEl = el("div", { className: "session-list" });
+    this.sessionsPanel.append(this.sessionSearchInput, this.sessionListEl);
     this.chatArea = el("div", { className: "chat-area" });
     const inputArea = this.createInputArea();
     const statusBar = this.createStatusBar();
     this.overlayEl = el("div", { className: "overlay hidden" });
-    this.root.append(header, agentBar, this.sessionsPanel, this.sessionSearchInput, this.chatArea, inputArea, statusBar, this.overlayEl);
+    this.root.append(header, agentBar, this.sessionsPanel, this.chatArea, inputArea, statusBar, this.overlayEl);
     this.renderMessages();
     this.renderSessionList();
     this.renderModels();
@@ -443,6 +446,7 @@ class App {
 
     const seg = el("div", { className: "agent-segmented" });
     const ags = this.state.agents.length ? this.state.agents : ["build", "plan", "review"];
+    if (!this.state.selectedAgent && ags.includes("plan")) this.state.selectedAgent = "plan";
     for (const a of ags) {
       const pill = el("button", { className: "agent-seg-btn" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
       pill.textContent = a.charAt(0).toUpperCase() + a.slice(1);
@@ -463,11 +467,11 @@ class App {
 
 
   private renderSessionList(): void {
-    this.sessionsPanel.innerHTML = "";
+    this.sessionListEl.innerHTML = "";
     const q = this.state.sessionFilter.toLowerCase();
     const filtered = q ? this.state.sessions.filter(s => (s.title || "").toLowerCase().includes(q)) : this.state.sessions;
     if (!filtered.length) {
-      this.sessionsPanel.appendChild(el("div", { className: "session-item dim" }, [txt(q ? "No sessions match" : "No sessions yet")]));
+      this.sessionListEl.appendChild(el("div", { className: "session-empty" }, [txt(q ? "No chats match \"" + q + "\"" : "No chats yet")]));
       return;
     }
     // group by time: today, yesterday, older
@@ -488,24 +492,28 @@ class App {
     for (const g of groups) {
       if (!g.items.length) continue;
       const section = el("div", { className: "session-group" });
-      const hdr = el("div", { className: "session-group-header" }, [txt(g.label.toUpperCase())]);
+      const hdr = el("div", { className: "session-group-header" }, [txt(g.label)]);
       section.appendChild(hdr);
       for (const s of g.items) {
         const item = el("div", { className: "session-item" + (s.id === this.state.currentSessionId ? " active" : "") });
-        const iconBox = el("div", { className: "session-icon" });
-        iconBox.textContent = "\u25C7";
-        item.appendChild(iconBox);
-        const body = el("div", { className: "session-body" });
-        const row = el("div", { className: "session-row" });
-        const title = el("span", { className: "title" }, [txt(s.title || "Untitled")]);
-        const ts = el("span", { className: "time" }, [txt(fmtTime(new Date(s.updated_at || s.created_at || 0).getTime()))]);
-        row.append(title, ts);
-        body.appendChild(row);
-        body.appendChild(el("div", { className: "preview" }, [txt(s.title || "No messages")]));
-        item.appendChild(body);
         item.onclick = () => this.switchSession(s.id);
 
-        const renameBtn = el("button", { className: "rename-btn", title: "Rename" });
+        const icon = el("div", { className: "session-item-icon" });
+        icon.textContent = "\uD83D\uDCAC";
+        item.appendChild(icon);
+
+        const body = el("div", { className: "session-item-body" });
+        const topRow = el("div", { className: "session-item-top" });
+        const title = el("span", { className: "session-item-title" }, [txt(s.title || "Untitled")]);
+        const ts = el("span", { className: "session-item-time" }, [txt(fmtTime(new Date(s.updated_at || s.created_at || 0).getTime()))]);
+        topRow.append(title, ts);
+        body.appendChild(topRow);
+        const msgCount = s.message_count ? s.message_count + " messages" : "";
+        body.appendChild(el("div", { className: "session-item-sub" }, [txt(msgCount || s.title || "No messages")]));
+        item.appendChild(body);
+
+        const actions = el("div", { className: "session-item-actions" });
+        const renameBtn = el("button", { className: "session-action-btn", title: "Rename" });
         renameBtn.textContent = "\u270F";
         renameBtn.onclick = (e) => {
           e.stopPropagation();
@@ -521,13 +529,15 @@ class App {
           input.onkeydown = (ev) => { if (ev.key === "Enter") save(); if (ev.key === "Escape") this.renderSessionList(); };
           input.onblur = save;
         };
-        const del = el("button", { className: "del-btn", title: "Delete" });
-        del.textContent = "\u2715";
-        del.onclick = (e) => { e.stopPropagation(); this.deleteSession(s.id); };
-        item.append(renameBtn, del);
+        const delBtn = el("button", { className: "session-action-btn danger", title: "Delete" });
+        delBtn.textContent = "\u2715";
+        delBtn.onclick = (e) => { e.stopPropagation(); this.deleteSession(s.id); };
+        actions.append(renameBtn, delBtn);
+        item.appendChild(actions);
+
         section.appendChild(item);
       }
-      this.sessionsPanel.appendChild(section);
+      this.sessionListEl.appendChild(section);
     }
   }
 
@@ -743,8 +753,9 @@ class App {
 
   private renderAtMenu(query: string): void {
     this.atMenuEl.innerHTML = "";
-    const selected = this.state.workspaceFiles.filter(f => !query || f.toLowerCase().includes(query));
-    if (selected.length === 0 || query.length < 1) {
+    const q = query.replace(/\//g, "\\");
+    const files = this.state.workspaceFiles.filter(f => !q || f.toLowerCase().includes(q));
+    if (files.length === 0) {
       const browse = el("div", { className: "item" });
       browse.innerHTML = `<div class="cmd">@file</div><div class="desc">Browse for file...</div>`;
       browse.onclick = () => {
@@ -754,22 +765,41 @@ class App {
       this.atMenuEl.appendChild(browse);
       return;
     }
-    for (const f of selected.slice(0, 20)) {
+    for (const f of files.slice(0, 20)) {
       const item = el("div", { className: "item" });
-      const short = f.split(/[\\/]/).slice(-2).join("/");
-      item.innerHTML = `<div class="cmd">${short}</div><div class="desc">${f}</div>`;
+      const parts = f.split(/[\\/]/);
+      const name = parts.pop() || f;
+      let display: string;
+      let insertKey: string;
+      if (parts.length === 0) {
+        display = name;
+        insertKey = name;
+      } else {
+        const parent = parts[parts.length - 1];
+        display = parent + "/" + name;
+        insertKey = parent + "/" + name;
+      }
+      const dir = parts.join("/") || ".";
+      item.innerHTML = `<div class="cmd">@${display}</div><div class="desc">${dir}</div>`;
       item.onclick = () => {
         const before = this.inputTextarea.value.slice(0, this.inputTextarea.selectionStart);
         const after = this.inputTextarea.value.slice(this.inputTextarea.selectionStart);
         const atIdx = before.lastIndexOf("@");
-        this.inputTextarea.value = before.slice(0, atIdx) + "@" + f + " " + after;
+        this.inputTextarea.value = before.slice(0, atIdx) + "@" + insertKey + " " + after;
         this.inputTextarea.focus();
-        const pos = before.slice(0, atIdx).length + f.length + 2;
+        const pos = before.slice(0, atIdx).length + insertKey.length + 2;
         this.inputTextarea.selectionStart = this.inputTextarea.selectionEnd = pos;
         this.hideAtMenu();
       };
       this.atMenuEl.appendChild(item);
     }
+    const browse = el("div", { className: "item" });
+    browse.innerHTML = `<div class="cmd">@file</div><div class="desc">Browse for file...</div>`;
+    browse.onclick = () => {
+      vscode.postMessage({ type: "show-file-picker" });
+      this.hideAtMenu();
+    };
+    this.atMenuEl.appendChild(browse);
   }
 
   private createStatusBar(): HTMLElement {
@@ -1278,11 +1308,17 @@ class App {
   }
 
   private send(): void {
-    const text = this.inputTextarea.value.trim();
+    let text = this.inputTextarea.value.trim();
     if (!text || this.state.isRunning) return;
     this.inputTextarea.value = "";
     this.inputTextarea.style.height = "auto";
     const isSlash = text.startsWith("/");
+    // resolve @filename to full paths for sending
+    text = text.replace(/(^|\s)@([\w.\-\\\/]+)/g, (match, before, name) => {
+      const normalized = name.replace(/\//g, "\\");
+      const found = this.state.workspaceFiles.find(f => f.endsWith(normalized) || f.endsWith(name));
+      return found ? before + "@" + found : match;
+    });
     this.state.messages.push({ role: "user", content: text });
     this.renderMessages();
     this.state.isRunning = true;
@@ -1310,6 +1346,8 @@ class App {
 
   private switchSession(id: string): void {
     this.state.currentSessionId = id;
+    this.state.showSessions = false;
+    this.sessionsPanel.classList.add("hidden");
     this.state.messages = [];
     this.renderMessages();
     this.setStatus("busy", "Loading...");
@@ -1355,6 +1393,7 @@ class App {
           break;
         case "agents":
           this.state.agents = msg.agents as string[];
+          if (!this.state.selectedAgent && this.state.agents.includes("plan")) this.state.selectedAgent = "plan";
           console.log(`[webview] agents: got ${this.state.agents.length} agents`);
           this.renderAgents();
           break;
@@ -1454,7 +1493,8 @@ class App {
         case "file-picked": {
           const fp = msg.path as string;
           if (fp) {
-            this.inputTextarea.value += "@" + fp + " ";
+            const name = fp.split(/[\\/]/).pop() || fp;
+            this.inputTextarea.value += "@" + name + " ";
             this.inputTextarea.focus();
           }
           break;
@@ -1553,6 +1593,7 @@ class App {
       if (ib !== -1) return 1;
       return 0;
     }) : ["build", "plan", "review"];
+    if (!this.state.selectedAgent && ags.includes("plan")) this.state.selectedAgent = "plan";
     for (const a of ags) {
       const pill = el("button", { className: "agent-seg-btn" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
       pill.textContent = a.charAt(0).toUpperCase() + a.slice(1);
