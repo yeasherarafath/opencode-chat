@@ -353,6 +353,7 @@ class App {
   private tokenDisplayEl!: HTMLElement;
   private streamingMsgEl: HTMLElement | null = null;
   private streamingContent = "";
+  private streamingParts: Record<string, unknown>[] = [];
   private streamingSaved = false;
   private slashMenuEl!: HTMLElement;
   private sessionSearchInput!: HTMLInputElement;
@@ -1278,27 +1279,14 @@ class App {
 
   private finalizeStreaming(): void {
     if (this.streamingMsgEl) {
-      this.streamingMsgEl.innerHTML = "";
       const modelName = this.state.selectedModel || "OpenCode";
-      const avatarWrap = el("div", { className: "avatar-wrap" });
-      const avatar = el("div", { className: "avatar" });
-      avatar.innerHTML = "&#x25C7;";
-      avatarWrap.appendChild(avatar);
-      this.streamingMsgEl.appendChild(avatarWrap);
-      const bubbleWrap = el("div", { className: "bubble-wrap" });
-      const bubble = el("div", { className: "bubble" });
-      const labelEl = el("div", { className: "role-label" });
-      labelEl.innerHTML = "<span class='name'>" + modelName + "</span>";
-      bubble.appendChild(labelEl);
-      if (this.streamingContent) {
-        const textEl = el("div", { className: "text" });
-        textEl.appendChild(renderMarkdown(this.streamingContent));
-        bubble.appendChild(textEl);
-      }
-      bubbleWrap.appendChild(bubble);
-      this.streamingMsgEl.appendChild(bubbleWrap);
-      this.streamingMsgEl.classList.remove("streaming", "animate-pulse");
+      const parts = this.streamingParts.length ? this.streamingParts : undefined;
+      const content = this.streamingContent;
+      this.streamingMsgEl.remove();
       this.streamingMsgEl = null;
+      if (content || (parts && parts.length)) {
+        this.appendMessageDOM("assistant", content, parts, modelName);
+      }
     }
   }
 
@@ -1673,6 +1661,7 @@ class App {
           this.setStatus("busy", "Generating...");
           if (!this.streamingMsgEl) this.showThinking();
           this.streamingContent = "";
+          this.streamingParts = [];
           this.streamingSaved = false;
           break;
         case "response-chunk":
@@ -1682,21 +1671,30 @@ class App {
         case "response-error":
           console.log(`[webview] response-error: ${msg.message}`);
           this.finalizeStreaming();
-          this.state.messages.push({ role: "assistant", content: this.streamingContent || "Error: " + (msg.message as string) });
+          this.state.messages.push({
+            role: "assistant",
+            content: this.streamingContent || "Error: " + (msg.message as string),
+            parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
+          });
           this.renderMessages();
           this.updateTokenDisplay();
           this.state.isRunning = false;
           this.streamingContent = "";
+          this.streamingParts = [];
           this.streamingSaved = false;
           this.updateRunningState();
           this.setStatus("error", "Error");
           break;
         case "response-end":
-          console.log(`[webview] response-end streamingContentLen=${this.streamingContent.length} saved=${this.streamingSaved}`);
+          console.log(`[webview] response-end streamingContentLen=${this.streamingContent.length} saved=${this.streamingSaved} parts=${this.streamingParts.length}`);
           this.finalizeStreaming();
-          if (this.streamingContent) {
+          if (this.streamingContent || this.streamingParts.length) {
             if (!this.streamingSaved) {
-              this.state.messages.push({ role: "assistant", content: this.streamingContent });
+              this.state.messages.push({
+                role: "assistant",
+                content: this.streamingContent,
+                parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
+              });
               this.renderMessages();
               this.updateTokenDisplay();
             } else {
@@ -1706,10 +1704,16 @@ class App {
                 this.renderMessages();
                 this.updateTokenDisplay();
               }
+              // merge streaming parts into last message if it has none
+              if (last && this.streamingParts.length && !last.parts) {
+                (last as any).parts = [...this.streamingParts];
+                this.renderMessages();
+              }
             }
           }
           this.state.isRunning = false;
           this.streamingContent = "";
+          this.streamingParts = [];
           this.streamingSaved = false;
           this.updateRunningState();
           this.setStatus("ready", "Ready");
@@ -1721,9 +1725,13 @@ class App {
         case "aborted":
           console.log("[webview] aborted");
           this.finalizeStreaming();
-          if (this.streamingContent) {
+          if (this.streamingContent || this.streamingParts.length) {
             if (!this.streamingSaved) {
-              this.state.messages.push({ role: "assistant", content: this.streamingContent });
+              this.state.messages.push({
+                role: "assistant",
+                content: this.streamingContent,
+                parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
+              });
             } else {
               const last = this.state.messages[this.state.messages.length - 1];
               if (!last?.content && this.streamingContent.trim()) {
@@ -1733,6 +1741,7 @@ class App {
           }
           this.state.isRunning = false;
           this.streamingContent = "";
+          this.streamingParts = [];
           this.streamingSaved = false;
           this.renderMessages();
           this.updateTokenDisplay();
@@ -1853,27 +1862,52 @@ class App {
           this.appendStreaming(text);
         }
       } else if (type === "tool_use_start" || type === "tool_use.start" || type === "tool-start") {
+        const partId = (event.id as string) || "";
         if (name === "question" || name === "ask") {
           const raw = (event.input as Record<string, unknown>) || {};
           const qArr = raw.questions as Array<Record<string, unknown>> | undefined;
           this.state.pendingQuestion = {
             questions: (qArr && qArr.length) ? qArr : [raw],
             messageID: event.messageID as string,
-            partID: event.id as string,
+            partID: partId,
           };
           this.renderMessages();
         } else if (name === "task") {
           const inp = (event.input as Record<string, unknown>) || {};
           const desc = (inp.description as string) || "";
           this.appendStreamingTask(desc || "Task started...", "working");
+          // save for final rendering
+          this.streamingParts.push({
+            type: "tool_use", tool: "task", name: "task",
+            id: partId,
+            state: { status: "running", input: inp, title: desc },
+            input: inp,
+            arguments: inp,
+          });
         } else {
           const input = event.input ? JSON.stringify(event.input, null, 2) : "";
           this.appendStreaming("\n[" + (name || "tool") + ": " + input + "]\n");
+          this.streamingParts.push({
+            type: "tool_use", tool: name, name,
+            id: partId,
+            state: { status: "running", input: event.input },
+            input: event.input,
+            arguments: event.input,
+          });
         }
       } else if (type === "tool_result" || type === "tool-result") {
         const output = (event.content as string) || (event.output as string) || "";
         if (output) this.appendStreaming("\n" + output.trimEnd() + "\n");
-        if (output && name === "task") this.appendStreamingTask("", "done");
+        if (name === "task") this.appendStreamingTask("", "done");
+        // update last matching tool part with result
+        const partId = (event.id as string) || "";
+        for (let i = this.streamingParts.length - 1; i >= 0; i--) {
+          const p = this.streamingParts[i];
+          if (p.type === "tool_use" && (!partId || p.id === partId)) {
+            p.state = { ...(p.state as Record<string, unknown>), status: "completed", output, content: output };
+            break;
+          }
+        }
       } else if (type === "stderr") {
         if (content) this.appendStreaming("\n[stderr: " + content + "]\n");
       } else if (type === "error") {
