@@ -2,7 +2,7 @@
   "name": "opencode-chat",
   "displayName": "OpenCode Chat",
   "description": "Full-featured chat UI for OpenCode AI coding agent in VS Code sidebar",
-  "version": "0.1.1-beta.2",
+  "version": "0.2.0-beta.1",
   "publisher": "yeasherarafath",
   "author": {
     "name": "Yasir Arafat",
