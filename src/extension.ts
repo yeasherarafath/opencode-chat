@@ -2,13 +2,16 @@ import * as vscode from "vscode";
 import { OpenCodeCli } from "./OpenCodeCli";
 import { OpenCodeViewProvider } from "./OpenCodeViewProvider";
 
+let outputChannel: vscode.OutputChannel;
+let cli: OpenCodeCli;
+
 export async function activate(context: vscode.ExtensionContext) {
-  const outputChannel = vscode.window.createOutputChannel("OpenCode Chat");
+  outputChannel = vscode.window.createOutputChannel("OpenCode Chat");
   OpenCodeCli.setOutputChannel(outputChannel);
   context.subscriptions.push(outputChannel);
   outputChannel.appendLine("[OpenCode Chat] Extension activating...");
 
-  const cli = new OpenCodeCli();
+  cli = new OpenCodeCli();
 
   const cfg = vscode.workspace.getConfiguration("opencode-chat");
   const configPath = cfg.get<string>("cliPath") || "";
@@ -32,13 +35,6 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  context.subscriptions.push({
-    dispose: () => {
-      outputChannel.appendLine("[OpenCode Chat] Deactivating - stopping server");
-      cli.stop();
-    },
-  });
-
   context.subscriptions.push(
     vscode.commands.registerCommand("opencode-chat.openChat", () => {
       vscode.commands.executeCommand("workbench.view.extension.opencode-chat");
@@ -61,4 +57,7 @@ export async function activate(context: vscode.ExtensionContext) {
   await provider.initialize();
 }
 
-export function deactivate() {}
+export function deactivate() {
+  if (outputChannel) outputChannel.appendLine("[OpenCode Chat] Deactivating - stopping server");
+  if (cli) cli.stop();
+}
