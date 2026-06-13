@@ -1,0 +1,88 @@
+{
+  "name": "opencode-chat",
+  "displayName": "OpenCode Chat",
+  "description": "Full-featured chat UI for OpenCode AI coding agent in VS Code sidebar",
+  "version": "0.1.0",
+  "publisher": "yeasherarafath",
+  "author": {
+    "name": "Yasir Arafat",
+    "url": "https://github.com/yeasherarafath"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yeasherarafath/opencode-chat"
+  },
+  "bugs": {
+    "url": "https://github.com/yeasherarafath/opencode-chat/issues"
+  },
+  "homepage": "https://github.com/yeasherarafath/opencode-chat",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "media/icon.svg",
+  "activationEvents": [
+    "onView:opencode-chat.chatView"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "OpenCode Chat",
+      "properties": {
+        "opencode-chat.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the opencode CLI binary. Leave empty to auto-detect."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opencode-chat",
+          "title": "OpenCode Chat",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "opencode-chat": [
+        {
+          "type": "webview",
+          "id": "opencode-chat.chatView",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "opencode-chat.openChat",
+        "title": "OpenCode Chat: Focus Sidebar"
+      },
+      {
+        "command": "opencode-chat.newSession",
+        "title": "OpenCode Chat: New Session"
+      },
+      {
+        "command": "opencode-chat.refreshModels",
+        "title": "OpenCode Chat: Refresh Models"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.30.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.3.0"
+  }
+}
