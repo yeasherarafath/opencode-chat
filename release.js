@@ -164,10 +164,19 @@ function main() {
     console.log("  No remote — skipping push.");
   }
 
+  let releaseUrl = "";
   try {
     exec(`gh release create "${tag}" "${vsixPath}" --title "v${next}" --generate-notes`);
+    console.log(`  \u2713 GitHub release created: ${tag}`);
   } catch {
-    console.log("  gh CLI unavailable — skipping GitHub release.");
+    try {
+      const remoteUrl = shOut("git remote get-url origin");
+      const repo = remoteUrl.match(/[:/]([^/]+\/[^/.]+)(\.git)?$/)?.[1] || "your-repo";
+      releaseUrl = `https://github.com/${repo}/releases/new?tag=${tag}`;
+    } catch { /* no remote */ }
+    console.log("  ! WARNING: gh CLI unavailable — VSIX not attached to release.");
+    console.log(`  ! File saved locally: ${vsixPath}`);
+    console.log(`  ! Upload manually${releaseUrl ? ': ' + releaseUrl : ' to GitHub Releases'}`);
   }
 
   console.log(`\n  Done: v${current} -> v${next} (${tag})\n`);
