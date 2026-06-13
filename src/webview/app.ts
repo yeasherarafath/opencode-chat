@@ -467,6 +467,9 @@ class App {
         this.state.selectedVariant = "";
         seg.querySelectorAll("[data-agent]").forEach(p => p.classList.remove("active"));
         pill.classList.add("active");
+        const vp = document.querySelector("[data-part='variant-pill']");
+        if (vp) vp.innerHTML = "<span class='icon'>&#x2699;</span> Balanced <span class='arrow' style='font-size:8px'>\u25BC</span>";
+        this.variantPopup.querySelectorAll(".variant-opt").forEach(el => el.classList.remove("on"));
       };
       seg.appendChild(pill);
     }
@@ -567,7 +570,7 @@ class App {
 
   private createInputArea(): HTMLElement {
     const container = el("div", { className: "relative z-30 shrink-0 px-3 pb-2.5 pt-2 backdrop-blur-sm bg-surface-dim/85 border-t border-outline-variant" });
-    const inner = el("div", { className: "max-w-2xl mx-auto bg-surface-container-highest border border-outline-variant rounded-xl overflow-hidden transition-all duration-150 focus-within:border-primary-container focus-within:shadow-[0_0_0_1px_rgba(77,142,255,0.2)]" });
+    const inner = el("div", { className: "max-w-2xl mx-auto bg-surface-container-highest border border-outline-variant rounded-xl transition-all duration-150 focus-within:border-primary-container focus-within:shadow-[0_0_0_1px_rgba(77,142,255,0.2)]" });
 
     this.slashMenuEl = el("div", { className: "absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-64 overflow-y-auto min-w-[220px] shadow-lg z-100 mb-1 hidden" });
     container.appendChild(this.slashMenuEl);
@@ -577,9 +580,12 @@ class App {
     const inputToolbar = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant" });
     const modelPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Selected model", "data-part": "model-pill" });
     modelPill.innerHTML = "<span class='icon'>&#x2699;</span> " + (this.state.selectedModel || "Model") + " <span class='arrow' style='font-size:8px'>\u25BC</span>";
-    const modelPopup = el("div", { className: "absolute bottom-[calc(100%+4px)] left-0 bg-surface-container-low border border-outline-variant rounded-md min-w-[220px] z-100 shadow-lg flex flex-col hidden" });
-    const modelSearch = el("input", { className: "bg-surface-container-lowest border-none border-b border-outline-variant text-on-surface px-2 py-1.5 text-xs font-ui outline-none rounded-t-md placeholder:text-on-surface-variant/60", placeholder: "Search models...", type: "text" }) as HTMLInputElement;
-    const modelList = el("div", { className: "max-h-50 overflow-y-auto" });
+    const modelPopup = el("div", { className: "absolute bottom-full left-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[220px] z-100 shadow-lg" });
+    modelPopup.style.maxHeight = "260px";
+    modelPopup.style.display = "none";
+    modelPopup.style.overflowY = "auto";
+    const modelSearch = el("input", { className: "bg-surface-container-lowest border-none border-b border-outline-variant text-on-surface px-2 py-1.5 text-xs font-ui outline-none placeholder:text-on-surface-variant/60 w-full", placeholder: "Search models...", type: "text" }) as HTMLInputElement;
+    const modelList = el("div", { className: "" });
     modelPopup.append(modelSearch, modelList);
     const renderModelList = (q: string) => {
       modelList.innerHTML = "";
@@ -596,7 +602,7 @@ class App {
         const gh = el("div", { className: "px-2 py-1 text-xs font-semibold uppercase text-on-surface-variant/70 tracking-wide bg-black/10" }, [txt(prov)]);
         modelList.appendChild(gh);
         for (const m of items) {
-          const opt = el("div", { className: "px-3 py-1 text-xs cursor-pointer font-ui transition-colors duration-100 hover:bg-primary/8" + (m === this.state.selectedModel ? " on" : "") }, [txt(m)]);
+          const opt = el("div", { className: "model-popup-opt px-3 py-1 text-xs cursor-pointer font-ui transition-colors duration-100 hover:bg-primary/8" + (m === this.state.selectedModel ? " on" : "") }, [txt(m)]);
           opt.onclick = () => {
             this.state.selectedModel = m;
             modelPopup.classList.add("hidden");
@@ -607,28 +613,33 @@ class App {
       }
       if (!filtered.length) modelList.appendChild(el("div", { className: "px-3 py-1 text-xs text-on-surface-variant/60 cursor-default" }, [txt("No models match")]));
     };
+    modelPopup.style.display = "none";
     modelPill.onclick = () => {
       modelSearch.value = "";
       renderModelList("");
-      modelPopup.classList.toggle("hidden");
-      if (!modelPopup.classList.contains("hidden")) modelSearch.focus();
+      const closed = modelPopup.style.display === "none";
+      modelPopup.style.display = closed ? "block" : "none";
+      if (closed) modelSearch.focus();
     };
     modelSearch.oninput = () => renderModelList(modelSearch.value.toLowerCase());
-    modelSearch.onkeydown = (e) => { if (e.key === "Escape") modelPopup.classList.add("hidden"); };
+    modelSearch.onkeydown = (e) => { if (e.key === "Escape") modelPopup.style.display = "none"; };
     document.addEventListener("click", (e) => {
       if (!modelPill.contains(e.target as Node) && !modelPopup.contains(e.target as Node))
-        modelPopup.classList.add("hidden");
+        modelPopup.style.display = "none";
     });
+    inputToolbar.style.position = "relative";
     inputToolbar.appendChild(modelPill);
-    container.appendChild(modelPopup);
+    inputToolbar.appendChild(modelPopup);
 
-    const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Variant" });
+    const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Variant", "data-part": "variant-pill" });
     variantPill.innerHTML = "<span class='icon'>&#x2699;</span> " + (this.state.selectedVariant || "Balanced") + " <span class='arrow' style='font-size:8px'>\u25BC</span>";
     this.variantPopup = el("div", { className: "absolute bottom-full left-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[120px] z-100 shadow-lg hidden" });
     const vars = VARIANTS.filter(Boolean);
     for (const v of vars) {
-      const opt = el("div", { className: "px-3 py-1.5 text-xs cursor-pointer font-ui transition-colors duration-100 capitalize hover:bg-primary/8" + (v === this.state.selectedVariant ? " on" : "") }, [txt(v)]);
+      const opt = el("div", { className: "variant-opt px-3 py-1.5 text-xs cursor-pointer font-ui transition-colors duration-100 capitalize hover:bg-primary/8" + (v === this.state.selectedVariant ? " on" : "") }, [txt(v)]);
       opt.onclick = () => {
+        this.variantPopup.querySelectorAll(".variant-opt").forEach(el => el.classList.remove("on"));
+        opt.classList.add("on");
         this.state.selectedVariant = v;
         this.variantPopup.classList.add("hidden");
         variantPill.innerHTML = "<span class='icon'>&#x2699;</span> " + v + " <span class='arrow' style='font-size:8px'>\u25BC</span>";
@@ -639,6 +650,12 @@ class App {
     document.addEventListener("click", (e) => {
       if (!variantPill.contains(e.target as Node) && !this.variantPopup.contains(e.target as Node))
         this.variantPopup.classList.add("hidden");
+    });
+    document.addEventListener("click", (e) => {
+      if (!this.inputTextarea.contains(e.target as Node) && !this.atMenuEl.contains(e.target as Node) && !this.slashMenuEl.contains(e.target as Node)) {
+        this.hideAtMenu();
+        this.hideSlashMenu();
+      }
     });
     inputToolbar.appendChild(variantPill);
 
@@ -1428,11 +1445,18 @@ class App {
     this.inputTextarea.value = "";
     this.inputTextarea.style.height = "auto";
     const isSlash = text.startsWith("/");
-    // resolve @filename to full paths for sending
-    text = text.replace(/(^|\s)@([\w.\-\\\/]+)/g, (match, before, name) => {
+    // resolve @filename to full paths and collect file refs
+    const fileRefs: string[] = [];
+    text = text.replace(/(^|\s)@([\w.\-\\\/:]+)/g, (match, before, name) => {
       const normalized = name.replace(/\//g, "\\");
       const found = this.state.workspaceFiles.find(f => f.endsWith(normalized) || f.endsWith(name));
-      return found ? before + "@" + found : match;
+      if (found) {
+        fileRefs.push(found);
+        return before + "@" + found;
+      }
+      // if not in workspace files, it's a raw path from file-picker
+      fileRefs.push(name);
+      return match;
     });
     this.state.messages.push({ role: "user", content: text });
     this.renderMessages();
@@ -1447,6 +1471,7 @@ class App {
       model: this.state.selectedModel || undefined,
       agent: this.state.selectedAgent || undefined,
       variant: this.state.selectedVariant || undefined,
+      files: fileRefs.length ? fileRefs : undefined,
     });
     this.showThinking();
   }
@@ -1571,11 +1596,11 @@ class App {
           this.finalizeStreaming();
           if (this.streamingContent && !this.streamingSaved) {
             this.state.messages.push({ role: "assistant", content: this.streamingContent });
+            this.renderMessages();
           }
           this.state.isRunning = false;
           this.streamingContent = "";
           this.streamingSaved = false;
-          this.renderMessages();
           this.updateRunningState();
           this.setStatus("ready", "Ready");
           break;
@@ -1621,9 +1646,14 @@ class App {
         case "file-picked": {
           const fp = msg.path as string;
           if (fp) {
-            const name = fp.split(/[\\/]/).pop() || fp;
-            this.inputTextarea.value += "@" + name + " ";
+            const cursor = this.inputTextarea.selectionStart;
+            const before = this.inputTextarea.value.slice(0, cursor);
+            const after = this.inputTextarea.value.slice(cursor);
+            this.inputTextarea.value = before + "@" + fp + " " + after;
+            const pos = cursor + fp.length + 2;
+            this.inputTextarea.selectionStart = this.inputTextarea.selectionEnd = pos;
             this.inputTextarea.focus();
+            this.inputTextarea.dispatchEvent(new Event("input"));
           }
           break;
         }
@@ -1675,21 +1705,22 @@ class App {
         const r = (event.text as string) || content || (part?.text as string) || "";
         if (r) this.appendStreaming(r);
       } else if (type === "message" || type === "message.complete") {
-        this.finalizeStreaming();
         const info = (event.info as Record<string, unknown>) || {};
         const role = (event.role as string) || (info.role as string) || "assistant";
-        const parts = (event.parts || info.parts) as unknown[] | undefined;
+        const parts = (event.parts as unknown[]) || (info.parts as unknown[]) || [];
         let text = (event.content as string) || (event.text as string) || (info.content as string) || "";
-        if (!text && parts) {
-          text = (parts as any[])
-            .filter((p: any) => p.type === "text")
-            .map((p: any) => p.text || "")
-            .join("\n");
+        if (!text && parts.length) {
+          const textParts = (parts as any[]).filter((p: any) => p.type === "text" || p.type === "reasoning");
+          text = textParts.map((p: any) => p.text || "").join("\n");
         }
-        this.streamingSaved = true;
         const model = (event.modelID as string) || (info.modelID as string) || (info.model && (info.model as any).modelID) || "";
         const time = (event.time && (event.time as any).created ? Number((event.time as any).created) : undefined) || (info.time && (info.time as any).created ? Number((info.time as any).created) : undefined);
-        if (text || parts) { this.state.messages.push({ role, content: text, parts, model, time }); this.renderMessages(); }
+        if (text || parts.length) {
+          this.streamingSaved = true;
+          this.state.messages.push({ role, content: text, parts, model, time });
+          if (this.streamingMsgEl) { this.streamingMsgEl.remove(); this.streamingMsgEl = null; }
+          this.appendMessageDOM(role, text, parts, model, time);
+        }
       } else if (type === "tool_use_start" || type === "tool_use.start" || type === "tool-start") {
         if (name === "question" || name === "ask") {
           const raw = (event.input as Record<string, unknown>) || {};
@@ -1753,6 +1784,9 @@ class App {
         this.state.selectedVariant = "";
         seg.querySelectorAll("[data-agent]").forEach(p => p.classList.remove("active"));
         pill.classList.add("active");
+        const vp = document.querySelector("[data-part='variant-pill']");
+        if (vp) vp.innerHTML = "<span class='icon'>&#x2699;</span> Balanced <span class='arrow' style='font-size:8px'>\u25BC</span>";
+        this.variantPopup.querySelectorAll(".variant-opt").forEach(el => el.classList.remove("on"));
       };
       seg.appendChild(pill);
     }

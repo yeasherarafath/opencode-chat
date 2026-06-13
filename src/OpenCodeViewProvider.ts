@@ -152,7 +152,8 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
             message.sessionId as string | undefined,
             message.model as string | undefined,
             message.agent as string | undefined,
-            message.variant as string | undefined
+            message.variant as string | undefined,
+            message.files as string[] | undefined
           );
           break;
         }
@@ -395,16 +396,18 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     sessionId?: string,
     model?: string,
     agent?: string,
-    variant?: string
+    variant?: string,
+    files?: string[]
   ): void {
     if (!this.view) { this.log("sendMessage: no view, skip"); return; }
-    this.log(`sendMessage: text="${text.slice(0, 50)}..." sessionId=${sessionId ?? "new"} model=${model ?? "default"} agent=${agent ?? "default"} variant=${variant ?? "none"}`);
+    this.log(`sendMessage: text="${text.slice(0, 50)}..." sessionId=${sessionId ?? "new"} model=${model ?? "default"} agent=${agent ?? "default"} variant=${variant ?? "none"} files=${files?.length ?? 0}`);
 
-    const opts: { sessionId?: string; model?: string; agent?: string; variant?: string } = {};
+    const opts: { sessionId?: string; model?: string; agent?: string; variant?: string; files?: string[] } = {};
     if (sessionId) opts.sessionId = sessionId;
     if (model) opts.model = model;
     if (agent) opts.agent = agent;
     if (variant) opts.variant = variant;
+    if (files?.length) opts.files = files;
 
     try {
       this.view.webview.postMessage({ type: "response-start" });

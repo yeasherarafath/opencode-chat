@@ -1,7 +1,10 @@
-import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
+import { createOpencodeClient } from "@opencode-ai/sdk";
 import { execFile } from "child_process";
 import * as path from "path";
+import * as fs from "fs";
 import * as os from "os";
+import spawn_ from "cross-spawn";
+const spawn: (cmd: string, args: string[], opts?: any) => any = spawn_ as any;
 
 interface Session {
   id: string;
@@ -209,45 +212,49 @@ export class OpenCodeCli {
     const port = this.serverPort;
     const timeout = this.serverTimeout;
 
-    // strategy 1: try createOpencode (uses cross-spawn)
-    try {
-      this.log(`start: trying createOpencode (${hostname}:${port}, timeout=${timeout})`);
-      const { client, server } = await createOpencode({ hostname, port, timeout });
-      this.client = client as import("@opencode-ai/sdk/client").OpencodeClient;
-      this.serverInstance = server;
-      this.serverUrl = server.url;
-      this.log(`start: createOpencode OK at ${this.serverUrl}`);
-      return true;
-    } catch (e) {
-      this.log(`start: createOpencode FAILED: ${e}`);
-    }
-
-    // strategy 2: spawn serve manually with found binary
-    try {
-      const bin = this.binaryPath !== "opencode" ? this.binaryPath : null;
-      const resolved = bin || await this.resolveBinary();
-      if (resolved) {
-        this.log(`start: trying manual spawn with ${resolved}`);
-        const url = `http://${hostname}:${port}`;
-        const proc = execFile(resolved, ["serve", `--hostname=${hostname}`, `--port=${port}`]);
-        await new Promise<void>((resolve, reject) => {
-          const t = setTimeout(() => {
-            fetch(`${url}/health`).then(r => r.ok ? resolve() : reject(new Error("Not ready"))).catch(reject);
-          }, timeout);
-          const onData = () => { clearTimeout(t); resolve(); };
-          proc.stdout?.on("data", onData);
-          proc.stderr?.on("data", onData);
-          proc.on("exit", (code) => { clearTimeout(t); reject(new Error(`exit ${code}`)); });
-          proc.on("error", (err) => { clearTimeout(t); reject(err); });
+    // strategy 1: spawn serve manually via cross-spawn
+    const serverPassword = Math.random().toString(36).slice(2, 10);
+    const binary = this.binaryPath !== "opencode" ? this.binaryPath : await this.resolveBinary();
+    if (binary) {
+      try {
+        this.log(`start: trying manual spawn with ${binary} serve`);
+        const proc = spawn(binary, ["serve", `--hostname=${hostname}`, `--port=0`, `--print-logs`, `--log-level=DEBUG`], {
+          stdio: "pipe",
+          env: { ...process.env, OPENCODE_SERVER_PASSWORD: serverPassword },
         });
-        this.serverUrl = url;
-        this.serverInstance = { url, close: () => { proc.kill(); (proc as any).stdio?.forEach((s: any) => s?.destroy?.()); } };
-        this.client = createOpencodeClient({ baseUrl: url }) as import("@opencode-ai/sdk/client").OpencodeClient;
-        this.log(`start: manual spawn OK at ${url}`);
+        let stdoutBuf = "";
+        let stderrBuf = "";
+        const serverUrl = await new Promise<string>((resolve, reject) => {
+          const t = setTimeout(() => {
+            reject(new Error(`Timeout waiting for server after ${timeout}ms`));
+          }, timeout);
+          const onStdout = (chunk: any) => {
+            stdoutBuf += chunk.toString();
+            const m = stdoutBuf.match(/opencode server listening on (https?:\/\/[^\s]+)/);
+            if (m) { clearTimeout(t); resolve(m[1]); }
+          };
+          const onStderr = (chunk: any) => { stderrBuf += chunk.toString(); };
+          proc.stdout?.on("data", onStdout);
+          proc.stderr?.on("data", onStderr);
+          proc.on("exit", (code: any) => {
+            clearTimeout(t);
+            this.log(`spawn stderr: ${stderrBuf.slice(0, 500)}`);
+            reject(new Error(`exit ${code}`));
+          });
+          proc.on("error", (err: any) => { clearTimeout(t); reject(err); });
+        });
+        this.serverUrl = serverUrl;
+        this.serverInstance = { url: serverUrl, close: () => { proc.kill(); (proc as any).stdio?.forEach((s: any) => s?.destroy?.()); } };
+        const basicAuth = `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}`;
+        this.client = createOpencodeClient({
+          baseUrl: serverUrl,
+          headers: { Authorization: basicAuth },
+        }) as import("@opencode-ai/sdk/client").OpencodeClient;
+        this.log(`start: manual spawn OK at ${serverUrl}`);
         return true;
+      } catch (e) {
+        this.log(`start: manual spawn with serve FAILED: ${e}`);
       }
-    } catch (e) {
-      this.log(`start: manual spawn FAILED: ${e}`);
     }
 
     // strategy 3: connect to an already-running server
@@ -356,21 +363,41 @@ export class OpenCodeCli {
 
   async listModels(): Promise<string[]> {
     try {
-      const result = await this.client!.config.providers();
-      const data = result.data;
-      if (!data) return [];
+      if (!this.client) { this.log("listModels: client is null"); return []; }
+      const result: any = await this.client.config.providers();
+      const data: any = result.data;
+      const error: any = result.error;
+      this.log(`listModels: typeof data=${typeof data}, error=${typeof error !== "undefined"}, response status=${result.response?.status}`);
+      if (error) this.log(`listModels: error=${JSON.stringify(error).slice(0, 300)}`);
+      if (!data) {
+        // try fetching directly to debug
+        try {
+          const raw = await fetch(`http://${this.serverHostname}:${this.serverPort}/config/providers`);
+          const text = await raw.text();
+          this.log(`listModels: raw fetch status=${raw.status}, body=${text.slice(0, 500)}`);
+        } catch (e2) {
+          this.log(`listModels: raw fetch also failed: ${e2}`);
+        }
+        return [];
+      }
+      // data can be { providers: [...] } or direct array
+      const providers: any[] = Array.isArray(data) ? data : (data.providers ?? []);
+      this.log(`listModels: ${providers.length} providers`);
       const models: string[] = [];
-      for (const provider of data.providers) {
+      for (const provider of providers) {
         const m = provider.models;
-        if (m) {
+        if (m && typeof m === "object") {
           for (const key of Object.keys(m)) {
             const model = m[key];
-            if (model.id) {
+            if (model && model.id) {
               models.push(`${provider.id}/${model.id}`);
             }
           }
+        } else {
+          this.log(`listModels: provider ${provider.id} has no models (type=${typeof m})`);
         }
       }
+      this.log(`listModels: returning ${models.length} models`);
       return models;
     } catch (e) {
       this.log(`listModels error: ${e}`);
@@ -380,14 +407,16 @@ export class OpenCodeCli {
 
   async getProviderInfo(): Promise<Array<{ id: string; name: string; key?: string; modelCount: number }>> {
     try {
-      const result = await this.client!.config.providers();
-      const data = result.data;
+      if (!this.client) { this.log("getProviderInfo: client is null"); return []; }
+      const result = await this.client.config.providers();
+      const data: any = result.data;
       if (!data) return [];
-      return data.providers.map(p => ({
+      const providers: any[] = Array.isArray(data) ? data : (data.providers ?? []);
+      return providers.map(p => ({
         id: p.id,
         name: p.name,
         key: p.key,
-        modelCount: Object.keys(p.models || {}).length,
+        modelCount: p.models ? Object.keys(p.models).length : 0,
       }));
     } catch (e) {
       this.log(`getProviderInfo error: ${e}`);
@@ -408,13 +437,14 @@ export class OpenCodeCli {
 
   async runPrompt(
     prompt: string,
-    options: { sessionId?: string; model?: string; agent?: string; variant?: string } = {},
+    options: { sessionId?: string; model?: string; agent?: string; variant?: string; files?: string[] } = {},
     onEvent: (event: CliEvent) => void,
     onError: (error: Error) => void,
     onExit: (code: number | null) => void
   ): Promise<void> {
     this.sseAbortFlag = false;
     this.sseIterator = null;
+    let knownMessageIds = new Set<string>();
 
     try {
       let sessionId = options.sessionId;
@@ -437,10 +467,35 @@ export class OpenCodeCli {
       const iterator = events.stream[Symbol.asyncIterator]();
       this.sseIterator = iterator;
 
+      // build parts: text + file attachments
+      const parts: any[] = [
+        { type: "text" as const, text: prompt },
+      ];
+      if (options.files && options.files.length) {
+        for (const fp of options.files) {
+          try {
+            const raw = await fs.promises.readFile(fp, "utf-8");
+            parts.push({
+              type: "file" as const,
+              mime: "text/plain",
+              url: fp,
+              source: {
+                type: "file" as const,
+                path: fp,
+                text: { value: raw, start: 0, end: raw.length },
+              },
+            });
+            this.log(`runPrompt: attached file ${fp} (${raw.length} chars)`);
+          } catch (e) {
+            this.log(`runPrompt: failed to read file ${fp}: ${e}`);
+          }
+        }
+      }
+
       await this.client!.session.promptAsync({
         path: { id: sessionId },
         body: {
-          parts: [{ type: "text" as const, text: prompt }],
+          parts,
           ...(model ? { model } : {}),
           ...(options.agent ? { agent: options.agent } : {}),
         },
@@ -490,6 +545,8 @@ export class OpenCodeCli {
             } else if (st === "error") {
               onEvent({ type: "tool-result", name: toolName, output: state?.error as string, content: state?.error as string, id: part?.id as string });
             }
+          } else if (ptype === "reasoning" && delta) {
+            onEvent({ type: "reasoning", text: delta });
           } else if (delta) {
             onEvent({ type: "text", content: delta });
           }
@@ -497,8 +554,26 @@ export class OpenCodeCli {
           hasStarted = true;
           const info = props.info as Record<string, unknown> | undefined;
           if (info?.role === "assistant") {
-            onEvent({ type: "message", info, role: "assistant" });
+            const msgId = info?.id as string;
+            if (!msgId || knownMessageIds.has(msgId)) { continue; }
+            knownMessageIds.add(msgId);
+            let mcontent = "";
+            let mparts: unknown[] = [];
+            if (msgId) {
+              try {
+                const msgResult = await this.client!.session.message({ path: { id: sessionId, messageID: msgId } });
+                const msgData = msgResult.data as Record<string, unknown> | undefined;
+                if (msgData) {
+                  mcontent = (msgData.content as string) || (msgData.text as string) || "";
+                  mparts = (msgData.parts as unknown[]) || [];
+                }
+              } catch (e) {
+                this.log(`message.updated: fetch msg ${msgId} failed: ${e}`);
+              }
+            }
+            onEvent({ type: "message", info, role: "assistant", parts: mparts, content: mcontent });
           }
+          continue;
         } else if (etype === "session.status") {
           const status = props.status as Record<string, unknown> | undefined;
           if (status?.type === "idle" && hasStarted) {

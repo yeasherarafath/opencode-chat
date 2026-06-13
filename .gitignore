@@ -5,3 +5,5 @@ dist/
 .DS_Store
 Thumbs.db
 design/
+# Windows reserved device name (created by opencode CLI in MSYS2)
+nul
