@@ -21,13 +21,37 @@
     "vscode": "^1.85.0"
   },
   "categories": [
-    "Other"
+    "Chat",
+    "AI",
+    "Programming Languages",
+    "Machine Learning"
   ],
-  "icon": "media/icon.svg",
+  "keywords": [
+    "opencode",
+    "ai",
+    "chat",
+    "coding agent",
+    "copilot",
+    "llm",
+    "code generation",
+    "code review",
+    "cli",
+    "sidebar"
+  ],
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#131313",
+    "theme": "dark"
+  },
+  "preview": true,
   "activationEvents": [
     "onView:opencode-chat.chatView"
   ],
   "main": "./dist/extension.js",
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
   "contributes": {
     "configuration": {
       "title": "OpenCode Chat",

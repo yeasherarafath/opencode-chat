@@ -3,6 +3,12 @@
 src/**
 node_modules/**
 .gitignore
+.gitattributes
 tsconfig.json
 esbuild.js
+postcss.config.js
+tailwind.config.js
+package-lock.json
 *.map
+design/
+.vscodeignore
