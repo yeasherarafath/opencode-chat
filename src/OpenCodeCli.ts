@@ -1,7 +1,77 @@
-import { execFile, spawn, ChildProcess } from "child_process";
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
+import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
+
+interface Session {
+  id: string;
+  title: string;
+  projectID: string;
+  directory: string;
+  parentID?: string;
+  time: { created: number; updated: number };
+  share?: { url: string };
+}
+
+interface TextPart {
+  id: string;
+  sessionID: string;
+  messageID: string;
+  type: "text";
+  text: string;
+}
+
+interface ReasoningPart {
+  id: string;
+  sessionID: string;
+  messageID: string;
+  type: "reasoning";
+  text: string;
+}
+
+interface ToolPart {
+  id: string;
+  sessionID: string;
+  messageID: string;
+  type: "tool";
+  callID: string;
+  tool: string;
+  state:
+    | { status: "pending"; input: Record<string, unknown>; raw: string }
+    | { status: "running"; input: Record<string, unknown>; title?: string; time: { start: number } }
+    | { status: "completed"; input: Record<string, unknown>; output: string; title: string; time: { start: number; end: number } }
+    | { status: "error"; input: Record<string, unknown>; error: string; time: { start: number; end: number } };
+}
+
+interface StepFinishPart {
+  id: string;
+  sessionID: string;
+  messageID: string;
+  type: "step-finish";
+  reason: string;
+  cost: number;
+  tokens: { input: number; output: number; reasoning: number; cache: { read: number; write: number } };
+}
+
+type Part = TextPart | ReasoningPart | ToolPart | StepFinishPart | { type: string; [key: string]: unknown };
+
+interface AssistantMessage {
+  id: string;
+  sessionID: string;
+  role: "assistant";
+  time: { created: number; completed?: number };
+  parentID: string;
+  modelID: string;
+  providerID: string;
+  mode: string;
+  cost: number;
+  tokens: { input: number; output: number; reasoning: number; cache: { read: number; write: number } };
+}
+
+interface FileDiff {
+  file: string;
+  before: string;
+  after: string;
+  additions: number;
+  deletions: number;
+}
 
 export interface SessionInfo {
   id: string;
@@ -15,24 +85,36 @@ export interface CliEvent {
   type: string;
   content?: string;
   name?: string;
-  input?: string;
+  input?: unknown;
   output?: string;
   data?: unknown;
   [key: string]: unknown;
 }
 
-function isWindows(): boolean {
-  return process.platform === "win32";
+function sessionToInfo(s: Session): SessionInfo {
+  return {
+    id: s.id,
+    title: s.title,
+    created_at: new Date(s.time.created).toISOString(),
+    updated_at: new Date(s.time.updated).toISOString(),
+  };
 }
 
 export class OpenCodeCli {
-  private runningProcess: ChildProcess | null = null;
-  private cliPath: string;
-  private resolved = false;
+  private client: import("@opencode-ai/sdk/client").OpencodeClient | null = null;
+  private serverInstance: { url: string; close(): void } | null = null;
+  private serverUrl: string = "";
   private static outputChannel: import("vscode").OutputChannel | null = null;
+  private sseAbortFlag = false;
+  private sseIterator: AsyncIterator<unknown> | null = null;
+  private binaryPath = "opencode";
 
   static setOutputChannel(ch: import("vscode").OutputChannel): void {
     OpenCodeCli.outputChannel = ch;
+  }
+
+  setBinaryPath(p: string): void {
+    this.binaryPath = p || "opencode";
   }
 
   private log(msg: string): void {
@@ -41,124 +123,118 @@ export class OpenCodeCli {
     }
   }
 
-  constructor(cliPath = "opencode") {
-    this.cliPath = cliPath;
-    this.log(`constructor: cliPath="${cliPath}"`);
-  }
-
-  private async resolveBinary(): Promise<string> {
-    this.log(`resolveBinary: start, cliPath="${this.cliPath}", resolved=${this.resolved}`);
-    if (this.resolved) return this.cliPath;
-
-    if (fs.existsSync(this.cliPath)) {
-      this.log(`resolveBinary: direct path exists: "${this.cliPath}"`);
-      this.resolved = true;
-      return this.cliPath;
+  private async resolveBinary(): Promise<string | null> {
+    const { execFile } = await import("child_process");
+    const candidates = [this.binaryPath];
+    if (this.binaryPath === "opencode") {
+      candidates.push("opencode.exe", "opencode.cmd");
     }
-    this.log(`resolveBinary: direct path not found: "${this.cliPath}"`);
-
-    this.log(`resolveBinary: PATH=${process.env.PATH || "(empty)"}`);
-
-    let allResults: string[] = [];
-    try {
-      this.log(`resolveBinary: running "where ${this.cliPath}"`);
-      allResults = await this.lookupBinary(this.cliPath);
-      this.log(`resolveBinary: "where" results: [${allResults.join(", ")}]`);
-    } catch (e) {
-      this.log(`resolveBinary: "where ${this.cliPath}" failed: ${e}`);
-    }
-    if (allResults.length === 0 && isWindows()) {
+    for (const bin of candidates) {
       try {
-        this.log(`resolveBinary: running "where ${this.cliPath}.cmd"`);
-        allResults = await this.lookupBinary(`${this.cliPath}.cmd`);
-        this.log(`resolveBinary: "where .cmd" results: [${allResults.join(", ")}]`);
-      } catch (e) {
-        this.log(`resolveBinary: "where ${this.cliPath}.cmd" failed: ${e}`);
+        await new Promise<void>((resolve, reject) => {
+          execFile(bin, ["--version"], { timeout: 3000 }, (err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+        this.binaryPath = bin;
+        return bin;
+      } catch {
+        // try next
       }
-    }
-
-    if (isWindows()) {
-      const cmd = allResults.find((p) => /\.cmd$/i.test(p));
-      if (cmd) { this.log(`resolveBinary: picked .cmd: "${cmd}"`); this.cliPath = cmd; this.resolved = true; return this.cliPath; }
-      const exe = allResults.find((p) => /\.exe$/i.test(p));
-      if (exe) { this.log(`resolveBinary: picked .exe: "${exe}"`); this.cliPath = exe; this.resolved = true; return this.cliPath; }
-      const noExt = allResults.find((p) => fs.existsSync(p));
-      if (noExt) { this.log(`resolveBinary: picked extensionless: "${noExt}"`); this.cliPath = noExt; this.resolved = true; return this.cliPath; }
-    } else {
-      const found = allResults.find((p) => fs.existsSync(p));
-      if (found) { this.log(`resolveBinary: picked: "${found}"`); this.cliPath = found; this.resolved = true; return this.cliPath; }
-    }
-
-    this.log(`resolveBinary: "where" returned nothing useful, trying npm global fallback`);
-    const fallback = this.getNpmGlobalPath();
-    this.log(`resolveBinary: npm global fallback="${fallback}"`);
-    if (fallback && fs.existsSync(fallback)) {
-      this.log(`resolveBinary: using npm global fallback: "${fallback}"`);
-      this.cliPath = fallback;
-      this.resolved = true;
-    }
-
-    this.log(`resolveBinary: final cliPath="${this.cliPath}", resolved=${this.resolved}`);
-    return this.cliPath;
-  }
-
-  private lookupBinary(name: string): Promise<string[]> {
-    const lookupCmd = isWindows() ? "where" : "which";
-    return new Promise((resolve, reject) => {
-      execFile(lookupCmd, [name], { timeout: 5000 }, (err, stdout) => {
-        if (err) reject(err);
-        else resolve(stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
-      });
-    });
-  }
-
-  private getNpmGlobalPath(): string | null {
-    try {
-      const npmRoot = isWindows()
-        ? path.join(os.homedir(), "AppData", "Roaming", "npm")
-        : path.join(os.homedir(), ".npm", "bin");
-      this.log(`getNpmGlobalPath: npmRoot="${npmRoot}"`);
-      if (isWindows()) {
-        const cmdPath = path.join(npmRoot, "opencode.cmd");
-        this.log(`getNpmGlobalPath: checking "${cmdPath}" exists=${fs.existsSync(cmdPath)}`);
-        if (fs.existsSync(cmdPath)) return cmdPath;
-      }
-      const binPath = path.join(npmRoot, "opencode");
-      this.log(`getNpmGlobalPath: checking "${binPath}" exists=${fs.existsSync(binPath)}`);
-      if (fs.existsSync(binPath)) return binPath;
-    } catch (e) {
-      this.log(`getNpmGlobalPath: error: ${e}`);
     }
     return null;
   }
 
-  async checkInstall(): Promise<boolean> {
+  async start(): Promise<boolean> {
+    // strategy 1: try createOpencode (uses cross-spawn)
     try {
-      this.log(`checkInstall: resolving binary...`);
-      await this.resolveBinary();
-      this.log(`checkInstall: resolved to "${this.cliPath}", checking version...`);
-      const ver = await this.getVersion();
-      this.log(`checkInstall: version="${ver}", install OK`);
+      this.log("start: trying createOpencode");
+      const { client, server } = await createOpencode({ timeout: 15000 });
+      this.client = client as import("@opencode-ai/sdk/client").OpencodeClient;
+      this.serverInstance = server;
+      this.serverUrl = server.url;
+      this.log(`start: createOpencode OK at ${this.serverUrl}`);
       return true;
     } catch (e) {
-      this.log(`checkInstall: FAILED: ${e}`);
-      return false;
+      this.log(`start: createOpencode FAILED: ${e}`);
     }
+
+    // strategy 2: spawn serve manually with found binary
+    try {
+      const bin = this.binaryPath !== "opencode" ? this.binaryPath : null;
+      const resolved = bin || await this.resolveBinary();
+      if (resolved) {
+        this.log(`start: trying manual spawn with ${resolved}`);
+        const { execFile } = await import("child_process");
+        const port = 4096 + Math.floor(Math.random() * 1000);
+        const proc = execFile(resolved, ["serve", "--hostname=127.0.0.1", `--port=${port}`]);
+        const url = await new Promise<string>((resolve, reject) => {
+          let output = "";
+          const timeout = setTimeout(() => reject(new Error("Server start timeout")), 15000);
+          const onData = (chunk: Buffer) => {
+            output += chunk.toString();
+            const m = output.match(/on\s+(https?:\/\/[^\s]+)/);
+            if (m) { clearTimeout(timeout); resolve(m[1]); }
+          };
+          proc.stdout?.on("data", onData);
+          proc.stderr?.on("data", onData);
+          proc.on("exit", (code) => { clearTimeout(timeout); reject(new Error(`exit ${code}: ${output.slice(0, 200)}`)); });
+          proc.on("error", (err) => { clearTimeout(timeout); reject(err); });
+        });
+        this.serverUrl = url;
+        this.serverInstance = { url, close: () => { proc.kill(); proc.stdio?.forEach((s: any) => s?.destroy?.()); } };
+        this.client = createOpencodeClient({ baseUrl: url }) as import("@opencode-ai/sdk/client").OpencodeClient;
+        this.log(`start: manual spawn OK at ${url}`);
+        return true;
+      }
+    } catch (e) {
+      this.log(`start: manual spawn FAILED: ${e}`);
+    }
+
+    // strategy 3: connect to an already-running server on default port
+    try {
+      this.log("start: trying existing server at 127.0.0.1:4096");
+      const res = await fetch("http://127.0.0.1:4096/health");
+      if (res.ok) {
+        this.serverUrl = "http://127.0.0.1:4096";
+        this.client = createOpencodeClient({ baseUrl: this.serverUrl }) as import("@opencode-ai/sdk/client").OpencodeClient;
+        this.log("start: connected to existing server");
+        return true;
+      }
+    } catch {
+      this.log("start: no existing server found");
+    }
+
+    this.log("start: all strategies FAILED");
+    return false;
+  }
+
+  stop(): void {
+    this.log("stop: closing server");
+    this.serverInstance?.close();
+    this.serverInstance = null;
+    this.client = null;
+    this.serverUrl = "";
+  }
+
+  async checkInstall(): Promise<boolean> {
+    const resolved = await this.resolveBinary();
+    return resolved !== null;
   }
 
   async getVersion(): Promise<string> {
-    this.log(`getVersion: running "${this.cliPath} --version" (shell=${isWindows()})`);
-    return new Promise((resolve, reject) => {
-      execFile(this.cliPath, ["--version"], { timeout: 5000, shell: isWindows() }, (error: Error | null, stdout: string) => {
-        if (error) {
-          this.log(`getVersion: execFile error: ${error.message}`);
-          reject(new Error(`version check: ${error.message}`));
-        } else {
-          this.log(`getVersion: stdout="${stdout.trim()}"`);
-          resolve(stdout.trim());
-        }
-      });
-    });
+    if (!this.serverUrl) return "sdk";
+    try {
+      const res = await fetch(`${this.serverUrl}/health`);
+      if (res.ok) {
+        const data = await res.json() as Record<string, unknown>;
+        return (data.version as string) || "sdk";
+      }
+    } catch {
+      // fall through
+    }
+    return "sdk";
   }
 
   getInstallUrl(): string {
@@ -166,206 +242,267 @@ export class OpenCodeCli {
   }
 
   async listSessions(maxCount = 50): Promise<SessionInfo[]> {
-    return new Promise((resolve, reject) => {
-      execFile(
-        this.cliPath,
-        ["session", "list", "--format", "json", "--max-count", String(maxCount)],
-        { maxBuffer: 10 * 1024 * 1024, timeout: 30000, shell: isWindows() },
-        (error: Error | null, stdout: string) => {
-          if (error) {
-            reject(new Error(`list sessions failed: ${error.message}`));
-            return;
-          }
-          try {
-            const parsed = JSON.parse(stdout);
-            const sessions = Array.isArray(parsed) ? parsed : parsed.sessions ?? parsed.data ?? [];
-            resolve(sessions);
-          } catch {
-            resolve([]);
-          }
-        }
-      );
-    });
+    const result = await this.client!.session.list();
+    const sessions: Session[] = result.data ?? [];
+    return sessions.map(sessionToInfo);
   }
 
   async deleteSession(id: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      execFile(this.cliPath, ["session", "delete", id], { timeout: 15000, shell: isWindows() }, (error: Error | null) => {
-        if (error) reject(new Error(`delete session: ${error.message}`));
-        else resolve();
-      });
+    await this.client!.session.delete({ path: { id } });
+  }
+
+  async renameSession(id: string, title: string): Promise<void> {
+    await this.client!.session.update({ path: { id }, body: { title } });
+  }
+
+  async shareSession(id: string): Promise<string> {
+    const result = await this.client!.session.share({ path: { id } });
+    const session: Session = result.data!;
+    const url = session.share?.url;
+    if (!url) throw new Error("Share URL not returned");
+    return url;
+  }
+
+  async forkSession(id: string, messageID?: string): Promise<SessionInfo> {
+    const result = await this.client!.session.fork({
+      path: { id },
+      ...(messageID ? { body: { messageID } } : {}),
     });
+    const session: Session = result.data!;
+    return sessionToInfo(session);
+  }
+
+  async summarizeSession(id: string, providerID: string, modelID: string): Promise<boolean> {
+    const result = await this.client!.session.summarize({
+      path: { id },
+      body: { providerID, modelID },
+    });
+    return result.data === true;
+  }
+
+  async getSessionDiff(id: string): Promise<FileDiff[]> {
+    const result = await this.client!.session.diff({ path: { id } });
+    return result.data ?? [];
   }
 
   async exportSession(id: string): Promise<Record<string, unknown>> {
-    return new Promise((resolve, reject) => {
-      execFile(
-        this.cliPath,
-        ["export", id],
-        { maxBuffer: 50 * 1024 * 1024, timeout: 30000, shell: isWindows() },
-        (error: Error | null, stdout: string) => {
-          if (error) {
-            reject(new Error(`export session: ${error.message}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(stdout));
-          } catch {
-            reject(new Error("parse session export failed"));
-          }
-        }
-      );
-    });
+    const [sessionResult, msgsResult] = await Promise.all([
+      this.client!.session.get({ path: { id } }),
+      this.client!.session.messages({ path: { id } }),
+    ]);
+    const session: Session = sessionResult.data!;
+    const messages = msgsResult.data ?? [];
+    return { ...session, messages };
   }
 
   async listModels(): Promise<string[]> {
-    return new Promise((resolve, reject) => {
-      execFile(this.cliPath, ["models"], { maxBuffer: 10 * 1024 * 1024, timeout: 30000, shell: isWindows() }, (error: Error | null, stdout: string) => {
-        if (error) {
-          reject(new Error(`list models: ${error.message}`));
-          return;
+    try {
+      const result = await this.client!.config.providers();
+      const data = result.data;
+      if (!data) return [];
+      const models: string[] = [];
+      for (const provider of data.providers) {
+        const m = provider.models;
+        if (m) {
+          for (const key of Object.keys(m)) {
+            const model = m[key];
+            if (model.id) {
+              models.push(`${provider.id}/${model.id}`);
+            }
+          }
         }
-        const models = stdout
-          .split("\n")
-          .map((l: string) => l.trim())
-          .filter((l: string) => l.length > 0 && !l.startsWith("No") && !l.startsWith("Provider") && l.includes("/"));
-        resolve(models);
-      });
-    });
+      }
+      return models;
+    } catch (e) {
+      this.log(`listModels error: ${e}`);
+      return [];
+    }
+  }
+
+  async getProviderInfo(): Promise<Array<{ id: string; name: string; key?: string; modelCount: number }>> {
+    try {
+      const result = await this.client!.config.providers();
+      const data = result.data;
+      if (!data) return [];
+      return data.providers.map(p => ({
+        id: p.id,
+        name: p.name,
+        key: p.key,
+        modelCount: Object.keys(p.models || {}).length,
+      }));
+    } catch (e) {
+      this.log(`getProviderInfo error: ${e}`);
+      return [];
+    }
   }
 
   async listAgents(): Promise<string[]> {
-    return new Promise((resolve, reject) => {
-      execFile(this.cliPath, ["agent", "list"], { maxBuffer: 10 * 1024 * 1024, timeout: 15000, shell: isWindows() }, (error: Error | null, stdout: string) => {
-        if (error) {
-          reject(new Error(`list agents: ${error.message}`));
-          return;
-        }
-        const agents = stdout
-          .split("\n")
-          .map((l: string) => l.trim())
-          .filter((l: string) => {
-            if (!l || l.startsWith("[") || l.startsWith("]") || l.startsWith("{") || l.startsWith("}")) return false;
-            return /^[\w-]+/.test(l);
-          })
-          .map((l: string) => l.split(/\s+/)[0]);
-        resolve(agents);
-      });
-    });
+    try {
+      const result = await this.client!.app.agents();
+      const agents = result.data ?? [];
+      return agents.map((a: { name: string }) => a.name);
+    } catch (e) {
+      this.log(`listAgents error: ${e}`);
+      return [];
+    }
   }
 
-  runPrompt(
+  async runPrompt(
     prompt: string,
     options: { sessionId?: string; model?: string; agent?: string; variant?: string } = {},
     onEvent: (event: CliEvent) => void,
     onError: (error: Error) => void,
     onExit: (code: number | null) => void
-  ): void {
-    const args: string[] = ["run", "--format", "json"];
-    if (options.sessionId) {
-      args.push("--session", options.sessionId);
-    }
-    if (options.model) {
-      args.push("--model", options.model);
-    }
-    if (options.agent) {
-      args.push("--agent", options.agent);
-    }
-    if (options.variant) {
-      args.push("--variant", options.variant);
-    }
-    args.push(prompt);
+  ): Promise<void> {
+    this.sseAbortFlag = false;
+    this.sseIterator = null;
 
-    this.log(`runPrompt: spawning "${this.cliPath}" with args=[${args.join(", ")}], prompt="${prompt.slice(0, 80)}..." shell=${isWindows()}`);
+    try {
+      let sessionId = options.sessionId;
 
-    // stdio: close stdin (ignore) so the CLI doesn't hang waiting for more input
-    const proc = spawn(this.cliPath, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: isWindows(),
-    });
-
-    this.runningProcess = proc;
-    this.log("runPrompt: spawned, pid=" + proc.pid);
-
-    let buffer = "";
-    let chunkCount = 0;
-
-    proc.stdout.on("data", (chunk: Buffer) => {
-      chunkCount++;
-      const text = chunk.toString();
-      this.log(`runPrompt: stdout data #${chunkCount} len=${text.length} text="${text.slice(0, 200)}"`);
-      buffer += text;
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const evt = JSON.parse(trimmed);
-          this.log(`runPrompt: parsed event type=${evt.type}`);
-          onEvent(evt as CliEvent);
-        } catch (e) {
-          this.log(`runPrompt: non-JSON line: "${trimmed.slice(0, 100)}"`);
-          onEvent({ type: "text", content: trimmed });
-        }
+      if (!sessionId) {
+        const createResult = await this.client!.session.create({
+          body: { title: prompt.slice(0, 80) },
+        });
+        sessionId = createResult.data!.id;
+        onEvent({ type: "sessionID", sessionID: sessionId });
       }
-    });
 
-    proc.stderr.on("data", (chunk: Buffer) => {
-      const text = chunk.toString().trim();
-      this.log(`runPrompt: stderr data: "${text.slice(0, 200)}"`);
-      if (text) {
-        onEvent({ type: "stderr", content: text });
+      let model: { providerID: string; modelID: string } | undefined;
+      if (options.model && options.model.includes("/")) {
+        const [providerID, modelID] = options.model.split("/", 2);
+        model = { providerID, modelID };
       }
-    });
 
-    proc.on("error", (err: Error) => {
-      this.log(`runPrompt: process error: ${err.message}`);
-      this.runningProcess = null;
-      onError(err);
-    });
+      const events = await this.client!.event.subscribe();
+      const iterator = events.stream[Symbol.asyncIterator]();
+      this.sseIterator = iterator;
 
-    proc.on("exit", (code: number | null) => {
-      this.log(`runPrompt: process exit code=${code}, bufferRemaining="${buffer.trim().slice(0, 100)}"`);
-      this.runningProcess = null;
-      if (buffer.trim()) {
+      await this.client!.session.promptAsync({
+        path: { id: sessionId },
+        body: {
+          parts: [{ type: "text" as const, text: prompt }],
+          ...(model ? { model } : {}),
+          ...(options.agent ? { agent: options.agent } : {}),
+        },
+      });
+
+      let hasStarted = false;
+
+      while (!this.sseAbortFlag) {
+        let result: IteratorResult<unknown>;
         try {
-          const evt = JSON.parse(buffer.trim());
-          this.log(`runPrompt: parsed final buffer as event type=${evt.type}`);
-          onEvent(evt as CliEvent);
+          result = await iterator.next();
         } catch {
-          this.log(`runPrompt: final buffer not JSON, sending as text`);
-          onEvent({ type: "text", content: buffer.trim() });
+          if (hasStarted) break;
+          throw new Error("SSE stream error");
+        }
+        if (result.done) break;
+        if (this.sseAbortFlag) break;
+
+        const event = result.value as Record<string, unknown>;
+        const props = (event.properties || {}) as Record<string, unknown>;
+
+        const eventSessionId: string | undefined =
+          (props.part as Record<string, unknown>)?.sessionID as string ||
+          (props.info as Record<string, unknown>)?.sessionID as string ||
+          props.sessionID as string;
+
+        if (eventSessionId !== sessionId) {
+          if (!hasStarted) continue;
+        }
+
+        const etype = event.type as string;
+
+        if (etype === "message.part.updated") {
+          hasStarted = true;
+          const part = props.part as Record<string, unknown> | undefined;
+          const delta = props.delta as string | undefined;
+          const ptype = part?.type as string;
+
+          if (ptype === "tool") {
+            const state = part?.state as Record<string, unknown> | undefined;
+            const toolName = part?.tool as string;
+            const st = state?.status as string;
+            if (st === "running" || st === "pending") {
+              onEvent({ type: "tool-start", name: toolName, input: state?.input || {}, id: part?.id as string });
+            } else if (st === "completed") {
+              onEvent({ type: "tool-result", name: toolName, output: state?.output as string, content: state?.output as string, id: part?.id as string });
+            } else if (st === "error") {
+              onEvent({ type: "tool-result", name: toolName, output: state?.error as string, content: state?.error as string, id: part?.id as string });
+            }
+          } else if (delta) {
+            onEvent({ type: "text", content: delta });
+          }
+        } else if (etype === "message.updated") {
+          hasStarted = true;
+          const info = props.info as Record<string, unknown> | undefined;
+          if (info?.role === "assistant") {
+            onEvent({ type: "message", info, role: "assistant" });
+          }
+        } else if (etype === "session.status") {
+          const status = props.status as Record<string, unknown> | undefined;
+          if (status?.type === "idle" && hasStarted) {
+            break;
+          }
+        } else if (etype === "message.removed" || etype === "session.error") {
+          onEvent({ type: "error", message: (props.message as string) || "Session error" });
+          break;
         }
       }
-      onExit(code);
-    });
+
+      onExit(0);
+    } catch (e) {
+      this.log(`runPrompt error: ${e}`);
+      onError(e instanceof Error ? e : new Error(String(e)));
+      onExit(1);
+    } finally {
+      this.sseIterator = null;
+      this.sseAbortFlag = false;
+    }
   }
 
   async runCliCommand(args: string[]): Promise<string> {
+    const { execFile } = await import("child_process");
     return new Promise((resolve, reject) => {
-      execFile(this.cliPath, args, { maxBuffer: 10 * 1024 * 1024, timeout: 30000, shell: isWindows() }, (error: Error | null, stdout: string, stderr: string) => {
-        if (error) {
-          reject(new Error(stderr.trim() || error.message));
-          return;
-        }
-        resolve(stdout.trim());
+      execFile("opencode", args, { maxBuffer: 10 * 1024 * 1024, timeout: 30000 }, (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr.trim() || err.message));
+        else resolve(stdout.trim());
       });
     });
   }
 
-  abort(): void {
-    if (this.runningProcess) {
+  isRunning(): boolean {
+    return this.client !== null;
+  }
+
+  async abort(): Promise<void> {
+    this.sseAbortFlag = true;
+    if (this.sseIterator) {
       try {
-        this.runningProcess.kill("SIGTERM");
+        await this.sseIterator.return?.();
       } catch {
-        this.runningProcess.kill("SIGKILL");
+        // ignore
       }
-      this.runningProcess = null;
+      this.sseIterator = null;
     }
   }
 
-  isRunning(): boolean {
-    return this.runningProcess !== null;
+  async abortSession(sessionId: string): Promise<void> {
+    this.sseAbortFlag = true;
+    if (this.sseIterator) {
+      try {
+        await this.sseIterator.return?.();
+      } catch {
+        // ignore
+      }
+      this.sseIterator = null;
+    }
+    try {
+      await this.client!.session.abort({ path: { id: sessionId } });
+      this.log(`abortSession: aborted ${sessionId}`);
+    } catch (e) {
+      this.log(`abortSession error: ${e}`);
+    }
   }
 }

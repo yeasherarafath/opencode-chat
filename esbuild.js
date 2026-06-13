@@ -1,10 +1,22 @@
 const esbuild = require("esbuild");
 const path = require("path");
+const { execSync } = require("child_process");
 
 const args = process.argv.slice(2);
 const isWatch = args.includes("--watch");
 
+function buildTailwind() {
+  console.log("Building Tailwind CSS...");
+  execSync(
+    `npx tailwindcss -i src/webview/styles.css -o dist/webview.css`,
+    { stdio: "inherit" }
+  );
+  console.log("Tailwind CSS build complete: dist/webview.css");
+}
+
 async function build() {
+  buildTailwind();
+
   const extConfig = {
     entryPoints: [path.resolve(__dirname, "src/extension.ts")],
     bundle: true,

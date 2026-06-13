@@ -8,9 +8,12 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(outputChannel);
   outputChannel.appendLine("[OpenCode Chat] Extension activating...");
 
-  const configPath = vscode.workspace.getConfiguration().get<string>("opencode-chat.cliPath", "");
-  outputChannel.appendLine(`[OpenCode Chat] Config opencode-chat.cliPath="${configPath}"`);
-  const cli = new OpenCodeCli(configPath || undefined);
+  const cli = new OpenCodeCli();
+
+  const configPath = vscode.workspace.getConfiguration("opencode-chat").get<string>("cliPath") || "";
+  if (configPath) {
+    cli.setBinaryPath(configPath);
+  }
 
   const provider = new OpenCodeViewProvider(context.extensionUri, cli);
 
@@ -21,6 +24,13 @@ export async function activate(context: vscode.ExtensionContext) {
       { webviewOptions: { retainContextWhenHidden: true } }
     )
   );
+
+  context.subscriptions.push({
+    dispose: () => {
+      outputChannel.appendLine("[OpenCode Chat] Deactivating - stopping server");
+      cli.stop();
+    },
+  });
 
   context.subscriptions.push(
     vscode.commands.registerCommand("opencode-chat.openChat", () => {

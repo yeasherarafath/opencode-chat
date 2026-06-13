@@ -315,7 +315,9 @@ interface QuestionData {
   partID?: string;
 }
 
-interface Msg { role: string; content: string; parts?: unknown[]; model?: string; time?: number }
+interface Msg { role: string; content: string; parts?: unknown[]; model?: string; time?: number; id?: string }
+interface FileDiff { file: string; before: string; after: string; additions: number; deletions: number }
+interface ProviderInfo { id: string; name: string; key?: string; modelCount: number }
 
 interface AppState {
   isInstalled: boolean; opencodeVersion: string;
@@ -357,6 +359,8 @@ class App {
   private filteredSlash: typeof SLASH_CMDS = [];
   private slashIdx = 0;
   private overlayEl!: HTMLElement;
+  private pendingDiffResolve: ((d: FileDiff[]) => void) | null = null;
+  private pendingProviderResolve: ((p: ProviderInfo[]) => void) | null = null;
 
   constructor() {
     this.root = document.getElementById("root")!;
@@ -378,10 +382,10 @@ class App {
   }
 
   private renderInstall(): void {
-    this.root.appendChild(el("div", { className: "install-view" }, [
-      el("h2", {}, [txt("OpenCode CLI Required")]),
-      el("p", {}, [txt("Install the opencode CLI to use AI-powered coding assistance.")]),
-      el("button", { id: "install-btn" }, [txt("Install OpenCode")]),
+    this.root.appendChild(el("div", { className: "flex flex-col items-center justify-center h-screen px-8 text-center gap-5" }, [
+      el("h2", { className: "text-headline" }, [txt("OpenCode CLI Required")]),
+      el("p", { className: "text-body text-on-surface-variant max-w-[280px]" }, [txt("Install the opencode CLI to use AI-powered coding assistance.")]),
+      el("button", { className: "bg-primary-container text-on-primary border-none px-6 py-2.5 cursor-pointer text-sm font-medium rounded-md font-ui transition-colors duration-150 hover:bg-[#3d7ae8]", id: "install-btn" }, [txt("Install OpenCode")]),
     ]));
     document.getElementById("install-btn")!.onclick = () => vscode.postMessage({ type: "install" });
   }
@@ -389,18 +393,19 @@ class App {
   private renderMain(): void {
     const header = this.createHeader();
     const agentBar = this.createAgentBar();
-    this.sessionsPanel = el("div", { className: "sessions-panel" });
-    this.sessionSearchInput = el("input", { className: "session-search", placeholder: "Search chats...", type: "text" }) as HTMLInputElement;
+    this.sessionsPanel = el("div", { className: "bg-surface-dim border-b border-outline-variant max-h-72 overflow-y-auto shrink-0 hidden" });
+    this.sessionsPanel.classList.remove("hidden");
+    this.sessionSearchInput = el("input", { className: "shrink-0 bg-surface-dim border border-outline-variant mx-2 my-1.5 px-2.5 py-1.5 text-xs rounded-sm outline-none text-on-surface font-ui focus:border-primary-container placeholder:text-on-surface-variant/60", placeholder: "Search chats...", type: "text" }) as HTMLInputElement;
     this.sessionSearchInput.oninput = () => {
       this.state.sessionFilter = this.sessionSearchInput.value;
       this.renderSessionList();
     };
     this.sessionListEl = el("div", { className: "session-list" });
     this.sessionsPanel.append(this.sessionSearchInput, this.sessionListEl);
-    this.chatArea = el("div", { className: "chat-area" });
+    this.chatArea = el("div", { className: "flex-1 overflow-y-auto px-3 py-6 flex flex-col gap-5 overflow-x-hidden scroll-smooth" });
     const inputArea = this.createInputArea();
     const statusBar = this.createStatusBar();
-    this.overlayEl = el("div", { className: "overlay hidden" });
+    this.overlayEl = el("div", { className: "fixed inset-0 bg-black/50 z-200 flex items-center justify-center backdrop-blur-sm hidden" });
     this.root.append(header, agentBar, this.sessionsPanel, this.chatArea, inputArea, statusBar, this.overlayEl);
     this.renderMessages();
     this.renderSessionList();
@@ -409,51 +414,58 @@ class App {
   }
 
   private createHeader(): HTMLElement {
-    const hdr = el("header", { className: "header" });
-    const left = el("div", { className: "header-left" });
-    left.appendChild(el("span", { className: "brand" }, [txt("OpenCode")]));
-    left.appendChild(el("span", { className: "version" }, [txt("v" + (this.state.opencodeVersion || "?"))]));
+    const hdr = el("header", { className: "flex items-center justify-between px-3 h-11 flex-shrink-0 bg-surface-container-low border-b border-outline-variant" });
+    const left = el("div", { className: "flex items-center gap-2" });
+    left.appendChild(el("span", { className: "text-headline font-bold text-on-surface" }, [txt("OpenCode")]));
+    left.appendChild(el("span", { className: "text-label text-on-surface-variant/60 self-end mb-px" }, [txt("v" + (this.state.opencodeVersion || "?"))]));
     hdr.appendChild(left);
 
-    const right = el("div", { className: "header-right" });
-    const sessBtn = el("button", { className: "header-btn", title: "Toggle sessions" });
-    sessBtn.innerHTML = "Chat Sessions <span class='arrow'>▼</span>";
+    const right = el("div", { className: "flex items-center gap-1" });
+    const sessBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Toggle sessions" });
+    sessBtn.innerHTML = "Chat Sessions <span style='font-size:10px'>▼</span>";
     sessBtn.onclick = () => {
       this.state.showSessions = !this.state.showSessions;
       this.sessionsPanel.classList.toggle("hidden", !this.state.showSessions);
-      sessBtn.querySelector(".arrow")!.textContent = this.state.showSessions ? "▲" : "▼";
+      sessBtn.querySelector("span")!.textContent = this.state.showSessions ? "▲" : "▼";
     };
     right.appendChild(sessBtn);
-    const histBtn = el("button", { className: "header-btn", title: "History" });
+    const histBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "History" });
     histBtn.innerHTML = "<span class='icon'>&#x1F4CB;</span>";
     histBtn.onclick = () => { this.state.showSessions = !this.state.showSessions; this.sessionsPanel.classList.toggle("hidden"); };
     right.appendChild(histBtn);
+    const providersBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Providers" });
+    providersBtn.innerHTML = "&#x2699;";
+    providersBtn.onclick = () => {
+      vscode.postMessage({ type: "get-providers" });
+      this.showProvidersModal();
+    };
+    right.appendChild(providersBtn);
     hdr.appendChild(right);
     return hdr;
   }
 
   private createAgentBar(): HTMLElement {
-    const bar = el("div", { className: "agent-bar" });
-    const top = el("div", { className: "agent-bar-top" });
-    const label = el("span", { className: "agent-bar-label" });
+    const bar = el("div", { className: "flex flex-col gap-1.5 p-2 bg-surface-container border-b border-outline-variant shrink-0" });
+    const top = el("div", { className: "flex items-center justify-between px-0.5" });
+    const label = el("span", { className: "text-label text-on-surface-variant flex items-center gap-1 uppercase tracking-wide" });
     label.innerHTML = "<span class='icon'>&#x2699;</span> Agent Mode";
     top.appendChild(label);
-    const newBtn = el("button", { className: "new-chat-btn" });
+    const newBtn = el("button", { className: "flex items-center gap-1 text-label text-primary bg-primary/10 border-none px-2.5 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:bg-primary/20" });
     newBtn.innerHTML = "<span class='icon'>+</span> New Chat";
     newBtn.onclick = () => this.newSession();
     top.appendChild(newBtn);
     bar.appendChild(top);
 
-    const seg = el("div", { className: "agent-segmented" });
+    const seg = el("div", { className: "flex gap-1 p-0.5 rounded-lg bg-surface-container-lowest border border-outline-variant overflow-x-auto", "data-part": "agent-segmented" });
     const ags = this.state.agents.length ? this.state.agents : ["build", "plan", "review"];
     if (!this.state.selectedAgent && ags.includes("plan")) this.state.selectedAgent = "plan";
     for (const a of ags) {
-      const pill = el("button", { className: "agent-seg-btn" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
+      const pill = el("button", { className: "shrink-0 flex items-center justify-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2.5 py-1 rounded-md cursor-pointer transition-all duration-150 whitespace-nowrap hover:text-primary" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
       pill.textContent = a.charAt(0).toUpperCase() + a.slice(1);
       pill.onclick = () => {
         this.state.selectedAgent = a;
         this.state.selectedVariant = "";
-        seg.querySelectorAll(".agent-seg-btn").forEach(p => p.classList.remove("active"));
+        seg.querySelectorAll("[data-agent]").forEach(p => p.classList.remove("active"));
         pill.classList.add("active");
       };
       seg.appendChild(pill);
@@ -471,10 +483,9 @@ class App {
     const q = this.state.sessionFilter.toLowerCase();
     const filtered = q ? this.state.sessions.filter(s => (s.title || "").toLowerCase().includes(q)) : this.state.sessions;
     if (!filtered.length) {
-      this.sessionListEl.appendChild(el("div", { className: "session-empty" }, [txt(q ? "No chats match \"" + q + "\"" : "No chats yet")]));
+      this.sessionListEl.appendChild(el("div", { className: "text-xs text-on-surface-variant/60 text-center py-5" }, [txt(q ? "No chats match \"" + q + "\"" : "No chats yet")]));
       return;
     }
-    // group by time: today, yesterday, older
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(today.getTime() - 86400000);
@@ -491,48 +502,61 @@ class App {
     }
     for (const g of groups) {
       if (!g.items.length) continue;
-      const section = el("div", { className: "session-group" });
-      const hdr = el("div", { className: "session-group-header" }, [txt(g.label)]);
+      const section = el("div", { className: "py-1" });
+      const hdr = el("div", { className: "text-label text-outline uppercase tracking-wider px-3.5 pb-1 pt-1.5 text-xs" }, [txt(g.label)]);
       section.appendChild(hdr);
       for (const s of g.items) {
-        const item = el("div", { className: "session-item" + (s.id === this.state.currentSessionId ? " active" : "") });
+        const item = el("div", { className: "flex items-start gap-2.5 px-3 py-2 cursor-pointer text-xs font-ui rounded-sm mx-1.5 my-px relative hover:bg-white/3" + (s.id === this.state.currentSessionId ? " active" : "") });
         item.onclick = () => this.switchSession(s.id);
 
-        const icon = el("div", { className: "session-item-icon" });
+        const icon = el("div", { className: "shrink-0 w-8 h-8 rounded-md bg-primary/12 flex items-center justify-center text-sm text-primary" });
         icon.textContent = "\uD83D\uDCAC";
         item.appendChild(icon);
 
-        const body = el("div", { className: "session-item-body" });
-        const topRow = el("div", { className: "session-item-top" });
-        const title = el("span", { className: "session-item-title" }, [txt(s.title || "Untitled")]);
-        const ts = el("span", { className: "session-item-time" }, [txt(fmtTime(new Date(s.updated_at || s.created_at || 0).getTime()))]);
+        const body = el("div", { className: "flex-1 min-w-0" });
+        const topRow = el("div", { className: "flex items-center gap-2" });
+        const title = el("span", { className: "flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-medium text-on-surface text-xs" }, [txt(s.title || "Untitled")]);
+        const ts = el("span", { className: "text-label text-outline whitespace-nowrap shrink-0 text-xs" }, [txt(fmtTime(new Date(s.updated_at || s.created_at || 0).getTime()))]);
         topRow.append(title, ts);
         body.appendChild(topRow);
         const msgCount = s.message_count ? s.message_count + " messages" : "";
-        body.appendChild(el("div", { className: "session-item-sub" }, [txt(msgCount || s.title || "No messages")]));
+        body.appendChild(el("div", { className: "text-body-sm text-on-surface-variant overflow-hidden text-ellipsis whitespace-nowrap opacity-70" }, [txt(msgCount || s.title || "No messages")]));
         item.appendChild(body);
 
-        const actions = el("div", { className: "session-item-actions" });
-        const renameBtn = el("button", { className: "session-action-btn", title: "Rename" });
+        const actions = el("div", { className: "absolute right-2 top-1 bottom-1 flex flex-col justify-between opacity-0 transition-opacity duration-150 [.session-item:hover_&]:opacity-50 [&:hover]:opacity-100" });
+        const renameBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "Rename" });
         renameBtn.textContent = "\u270F";
         renameBtn.onclick = (e) => {
           e.stopPropagation();
-          const input = el("input", { className: "rename-input", value: s.title || "", type: "text" }) as HTMLInputElement;
+          const input = el("input", { className: "flex-1 bg-transparent text-on-surface border border-primary-container px-1.5 py-0.5 text-xs rounded-sm outline-none font-ui", value: s.title || "", type: "text" }) as HTMLInputElement;
           title.replaceWith(input);
           input.focus();
           input.select();
           const save = () => {
             const val = input.value.trim();
-            if (val) s.title = val;
+            if (val && val !== s.title) {
+              s.title = val;
+              vscode.postMessage({ type: "rename-session", sessionId: s.id, title: val });
+            }
             this.renderSessionList();
           };
           input.onkeydown = (ev) => { if (ev.key === "Enter") save(); if (ev.key === "Escape") this.renderSessionList(); };
           input.onblur = save;
         };
-        const delBtn = el("button", { className: "session-action-btn danger", title: "Delete" });
+        const shareBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "Share" });
+        shareBtn.textContent = "\u2197";
+        shareBtn.onclick = (e) => { e.stopPropagation(); vscode.postMessage({ type: "share-session", sessionId: s.id }); };
+        const diffBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "Show changes" });
+        diffBtn.textContent = "\u0394";
+        diffBtn.onclick = (e) => {
+          e.stopPropagation();
+          vscode.postMessage({ type: "get-session-diff", sessionId: s.id });
+          this.showDiffModal(s.id);
+        };
+        const delBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-error text-error", title: "Delete" });
         delBtn.textContent = "\u2715";
         delBtn.onclick = (e) => { e.stopPropagation(); this.deleteSession(s.id); };
-        actions.append(renameBtn, delBtn);
+        actions.append(renameBtn, shareBtn, diffBtn, delBtn);
         item.appendChild(actions);
 
         section.appendChild(item);
@@ -542,21 +566,20 @@ class App {
   }
 
   private createInputArea(): HTMLElement {
-    const container = el("div", { className: "input-container" });
-    const inner = el("div", { className: "input-inner" });
+    const container = el("div", { className: "relative z-30 shrink-0 px-3 pb-2.5 pt-2 backdrop-blur-sm bg-surface-dim/85 border-t border-outline-variant" });
+    const inner = el("div", { className: "max-w-2xl mx-auto bg-surface-container-highest border border-outline-variant rounded-xl overflow-hidden transition-all duration-150 focus-within:border-primary-container focus-within:shadow-[0_0_0_1px_rgba(77,142,255,0.2)]" });
 
-    this.slashMenuEl = el("div", { className: "slash-menu hidden" });
+    this.slashMenuEl = el("div", { className: "absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-64 overflow-y-auto min-w-[220px] shadow-lg z-100 mb-1 hidden" });
     container.appendChild(this.slashMenuEl);
-    this.atMenuEl = el("div", { className: "at-menu hidden" });
+    this.atMenuEl = el("div", { className: "absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-60 overflow-y-auto min-w-[240px] shadow-lg z-100 hidden" });
     container.appendChild(this.atMenuEl);
 
-    // input toolbar row (model pill, variant pill)
-    const inputToolbar = el("div", { className: "input-toolbar" });
-    const modelPill = el("button", { className: "input-pill model-pill", title: "Selected model" });
+    const inputToolbar = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant" });
+    const modelPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Selected model", "data-part": "model-pill" });
     modelPill.innerHTML = "<span class='icon'>&#x2699;</span> " + (this.state.selectedModel || "Model") + " <span class='arrow' style='font-size:8px'>\u25BC</span>";
-    const modelPopup = el("div", { className: "model-popup hidden" });
-    const modelSearch = el("input", { className: "model-popup-search", placeholder: "Search models...", type: "text" }) as HTMLInputElement;
-    const modelList = el("div", { className: "model-popup-list" });
+    const modelPopup = el("div", { className: "absolute bottom-[calc(100%+4px)] left-0 bg-surface-container-low border border-outline-variant rounded-md min-w-[220px] z-100 shadow-lg flex flex-col hidden" });
+    const modelSearch = el("input", { className: "bg-surface-container-lowest border-none border-b border-outline-variant text-on-surface px-2 py-1.5 text-xs font-ui outline-none rounded-t-md placeholder:text-on-surface-variant/60", placeholder: "Search models...", type: "text" }) as HTMLInputElement;
+    const modelList = el("div", { className: "max-h-50 overflow-y-auto" });
     modelPopup.append(modelSearch, modelList);
     const renderModelList = (q: string) => {
       modelList.innerHTML = "";
@@ -570,10 +593,10 @@ class App {
         groups[prov].push(m);
       }
       for (const [prov, items] of Object.entries(groups)) {
-        const gh = el("div", { className: "model-popup-group" }, [txt(prov)]);
+        const gh = el("div", { className: "px-2 py-1 text-xs font-semibold uppercase text-on-surface-variant/70 tracking-wide bg-black/10" }, [txt(prov)]);
         modelList.appendChild(gh);
         for (const m of items) {
-          const opt = el("div", { className: "model-popup-opt" + (m === this.state.selectedModel ? " on" : "") }, [txt(m)]);
+          const opt = el("div", { className: "px-3 py-1 text-xs cursor-pointer font-ui transition-colors duration-100 hover:bg-primary/8" + (m === this.state.selectedModel ? " on" : "") }, [txt(m)]);
           opt.onclick = () => {
             this.state.selectedModel = m;
             modelPopup.classList.add("hidden");
@@ -582,7 +605,7 @@ class App {
           modelList.appendChild(opt);
         }
       }
-      if (!filtered.length) modelList.appendChild(el("div", { className: "model-popup-opt dim" }, [txt("No models match")]));
+      if (!filtered.length) modelList.appendChild(el("div", { className: "px-3 py-1 text-xs text-on-surface-variant/60 cursor-default" }, [txt("No models match")]));
     };
     modelPill.onclick = () => {
       modelSearch.value = "";
@@ -599,12 +622,12 @@ class App {
     inputToolbar.appendChild(modelPill);
     container.appendChild(modelPopup);
 
-    const variantPill = el("button", { className: "input-pill", title: "Variant" });
+    const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Variant" });
     variantPill.innerHTML = "<span class='icon'>&#x2699;</span> " + (this.state.selectedVariant || "Balanced") + " <span class='arrow' style='font-size:8px'>\u25BC</span>";
-    this.variantPopup = el("div", { className: "variant-popup hidden" });
+    this.variantPopup = el("div", { className: "absolute bottom-full left-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[120px] z-100 shadow-lg hidden" });
     const vars = VARIANTS.filter(Boolean);
     for (const v of vars) {
-      const opt = el("div", { className: "variant-opt" + (v === this.state.selectedVariant ? " on" : "") }, [txt(v)]);
+      const opt = el("div", { className: "px-3 py-1.5 text-xs cursor-pointer font-ui transition-colors duration-100 capitalize hover:bg-primary/8" + (v === this.state.selectedVariant ? " on" : "") }, [txt(v)]);
       opt.onclick = () => {
         this.state.selectedVariant = v;
         this.variantPopup.classList.add("hidden");
@@ -621,12 +644,11 @@ class App {
 
     inner.appendChild(inputToolbar);
 
-    // variant popup (dropdown positioned near input pills)
     container.appendChild(this.variantPopup);
 
-    // textarea main area
-    const inputMain = el("div", { className: "input-main" });
+    const inputMain = el("div", { className: "flex items-end" });
     this.inputTextarea = el("textarea", { placeholder: "Ask a question or type /", rows: "1" }) as HTMLTextAreaElement;
+    this.inputTextarea.className = "flex-1 bg-transparent text-on-surface border-none px-3.5 py-2.5 resize-none text-body min-h-[40px] max-h-[140px] outline-none leading-relaxed placeholder:text-on-surface-variant/50";
     this.inputTextarea.oninput = () => {
       this.inputTextarea.style.height = "";
       this.inputTextarea.style.height = Math.min(this.inputTextarea.scrollHeight, 140) + "px";
@@ -654,29 +676,28 @@ class App {
     inputMain.appendChild(this.inputTextarea);
     inner.appendChild(inputMain);
 
-    // footer with attach, token count, send
-    const footer = el("div", { className: "input-footer" });
-    const left = el("div", { className: "input-footer-left" });
-    const attachBtn = el("button", { className: "input-footer-btn", title: "Attach file" });
+    const footer = el("div", { className: "flex items-center justify-between px-2.5 py-1.5 border-t border-outline-variant" });
+    const left = el("div", { className: "flex items-center gap-0.5" });
+    const attachBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-1 rounded-sm transition-all duration-150 flex items-center justify-center hover:text-primary hover:bg-white/4", title: "Attach file" });
     attachBtn.innerHTML = "<span class='icon'>&#x1F4CE;</span>";
     left.appendChild(attachBtn);
-    const ssBtn = el("button", { className: "input-footer-btn", title: "Screenshot" });
+    const ssBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-1 rounded-sm transition-all duration-150 flex items-center justify-center hover:text-primary hover:bg-white/4", title: "Screenshot" });
     ssBtn.innerHTML = "<span class='icon'>&#x1F4F7;</span>";
     left.appendChild(ssBtn);
-    left.appendChild(el("div", { className: "input-footer-sep" }));
-    const tokenBadge = el("div", { className: "token-badge" });
+    left.appendChild(el("div", { className: "w-px h-3.5 bg-outline-variant mx-1" }));
+    const tokenBadge = el("div", { className: "flex items-center gap-1 text-label text-tertiary bg-surface-container-high px-2 py-0.5 rounded-full border border-outline-variant" });
     tokenBadge.innerHTML = "<span class='icon'>&#x1F4CA;</span> 1.2k tokens";
     left.appendChild(tokenBadge);
     footer.appendChild(left);
 
-    const right = el("div", { className: "input-actions" });
-    const actions = el("div", { className: "input-actions" });
-    this.abortBtn = el("button", { className: "abort-btn", style: "display:none", title: "Abort" });
+    const right = el("div", { className: "flex gap-1 items-center" });
+    const actions = el("div", { className: "flex gap-1 items-center" });
+    this.abortBtn = el("button", { className: "w-8 h-8 rounded-full bg-transparent text-error border border-error cursor-pointer flex items-center justify-center transition-all duration-150 text-sm hover:bg-error/10", style: "display:none", title: "Abort" });
     this.abortBtn.textContent = "\u25A0";
     this.abortBtn.onclick = () => vscode.postMessage({ type: "abort" });
     actions.appendChild(this.abortBtn);
 
-    this.sendBtn = el("button", { className: "send-btn", title: "Send" });
+    this.sendBtn = el("button", { className: "w-8 h-8 rounded-full bg-primary-container text-on-primary border-none cursor-pointer flex items-center justify-center transition-all duration-150 hover:scale-105 active:scale-95", title: "Send" });
     this.sendBtn.innerHTML = "<span class='icon'>&#x2191;</span>";
     this.sendBtn.onclick = () => this.send();
     actions.appendChild(this.sendBtn);
@@ -810,20 +831,104 @@ class App {
   }
 
   private createStatusBar(): HTMLElement {
-    const bar = el("div", { className: "status-bar" });
+    const bar = el("div", { className: "flex items-center gap-1.5 px-3 py-0.5 text-label text-on-surface-variant border-t border-outline-variant shrink-0" });
 
-    this.infoBtn = el("button", { className: "info-btn", title: "Show session state" }, [txt("ⓘ")]);
+    this.infoBtn = el("button", { className: "bg-transparent border-none text-on-surface-variant cursor-pointer text-sm p-0 leading-none transition-colors duration-150 hover:text-on-surface", title: "Show session state" }, [txt("ⓘ")]);
     this.infoBtn.onclick = () => this.showStateModal();
 
-    this.statusDot = el("span", { className: "dot ready" });
+    this.statusDot = el("span", { className: "dot w-1.5 h-1.5 rounded-full shrink-0 ready" });
     this.statusText = el("span", { style: "flex:1" }, [txt("Ready")]);
     bar.append(this.infoBtn, this.statusDot, this.statusText);
     return bar;
   }
 
   private setStatus(state: "ready" | "busy" | "error", text: string): void {
-    this.statusDot.className = "dot " + state;
+    this.statusDot.className = "w-1.5 h-1.5 rounded-full shrink-0 " + state;
     this.statusText.textContent = text;
+  }
+
+  private showDiffModal(sessionId: string): void {
+    this.overlayEl.innerHTML = "";
+    this.overlayEl.classList.remove("hidden");
+
+    const modal = el("div", { className: "modal wide" });
+    modal.appendChild(el("h3", {}, [txt("Session Changes")]));
+    const body = el("div", { className: "modal-body" });
+
+    const loadingEl = el("div", { className: "row" }, [txt("Loading diff...")]);
+    body.appendChild(loadingEl);
+    modal.appendChild(body);
+
+    const closeBtn = el("button", { className: "close-btn" }, [txt("Close")]);
+    closeBtn.onclick = () => this.overlayEl.classList.add("hidden");
+    modal.appendChild(closeBtn);
+    this.overlayEl.appendChild(modal);
+
+    this.overlayEl.onclick = (e) => {
+      if (e.target === this.overlayEl) this.overlayEl.classList.add("hidden");
+    };
+
+    this.pendingDiffResolve = (diffs) => {
+      body.innerHTML = "";
+      if (!diffs.length) {
+        body.appendChild(el("div", { className: "row" }, [txt("No file changes in this session")]));
+        return;
+      }
+      for (const d of diffs) {
+        const section = el("div", { className: "diff-section" });
+        const hdr = el("div", { className: "diff-header" });
+        hdr.appendChild(el("span", { className: "diff-file" }, [txt(d.file)]));
+        const stats = el("span", { className: "diff-stats" });
+        const add = el("span", { style: "color:#22c55e" }, [txt("+" + d.additions)]);
+        const del = el("span", { style: "color:#ef4444;margin-left:4px" }, [txt("-" + d.deletions)]);
+        stats.append(add, del);
+        hdr.appendChild(stats);
+        section.appendChild(hdr);
+        body.appendChild(section);
+      }
+    };
+  }
+
+  private showProvidersModal(): void {
+    this.overlayEl.innerHTML = "";
+    this.overlayEl.classList.remove("hidden");
+
+    const modal = el("div", { className: "modal" });
+    modal.appendChild(el("h3", {}, [txt("Providers")]));
+    const body = el("div", { className: "modal-body" });
+
+    const loadingEl = el("div", { className: "row" }, [txt("Loading providers...")]);
+    body.appendChild(loadingEl);
+    modal.appendChild(body);
+
+    const closeBtn = el("button", { className: "close-btn" }, [txt("Close")]);
+    closeBtn.onclick = () => this.overlayEl.classList.add("hidden");
+    modal.appendChild(closeBtn);
+    this.overlayEl.appendChild(modal);
+
+    this.overlayEl.onclick = (e) => {
+      if (e.target === this.overlayEl) this.overlayEl.classList.add("hidden");
+    };
+
+    this.pendingProviderResolve = (providers) => {
+      body.innerHTML = "";
+      if (!providers.length) {
+        body.appendChild(el("div", { className: "row" }, [txt("No providers found")]));
+        return;
+      }
+      for (const p of providers) {
+        const section = el("div", { className: "row", style: "flex-direction:column;gap:2px;padding:6px 0" });
+        const nameRow = el("div", { style: "display:flex;justify-content:space-between;width:100%" });
+        nameRow.appendChild(el("span", { className: "value" }, [txt(p.name || p.id)]));
+        nameRow.appendChild(el("span", { className: "value" }, [txt(p.modelCount + " models")]));
+        section.appendChild(nameRow);
+        if (p.key) {
+          const masked = p.key.length > 8 ? p.key.slice(0, 4) + "..." + p.key.slice(-4) : "***";
+          section.appendChild(el("span", { style: "font-size:11px;opacity:.6" }, [txt("Key: " + masked)]));
+        }
+        body.appendChild(section);
+      }
+    };
   }
 
   private showStateModal(): void {
@@ -833,8 +938,8 @@ class App {
     this.overlayEl.innerHTML = "";
     this.overlayEl.classList.remove("hidden");
 
-    const modal = el("div", { className: "modal" });
-    modal.appendChild(el("h3", {}, [txt("OpenCode State")]));
+    const modal = el("div", { className: "bg-surface-container-low border border-outline-variant rounded-lg p-5" });
+    modal.appendChild(el("h3", { className: "text-headline mb-3" }, [txt("OpenCode State")]));
 
     const rows: [string, string][] = [
       ["CLI Installed", s.isInstalled ? "Yes" : "No"],
@@ -849,13 +954,13 @@ class App {
     ];
 
     for (const [label, value] of rows) {
-      const row = el("div", { className: "row" });
-      row.appendChild(el("span", { className: "label" }, [txt(label)]));
-      row.appendChild(el("span", { className: "value" }, [txt(value)]));
+      const row = el("div", { className: "flex gap-3 py-1 text-xs" });
+      row.appendChild(el("span", { className: "font-medium text-on-surface-variant min-w-[110px]" }, [txt(label)]));
+      row.appendChild(el("span", { className: "text-on-surface" }, [txt(value)]));
       modal.appendChild(row);
     }
 
-    const closeBtn = el("button", { className: "close-btn" }, [txt("Close")]);
+    const closeBtn = el("button", { className: "mt-4 w-full bg-primary text-on-primary border-none py-2.5 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85 shadow-[0_4px_12px_rgba(173,198,255,0.15)]" }, [txt("Close")]);
     closeBtn.onclick = () => this.overlayEl.classList.add("hidden");
     modal.appendChild(closeBtn);
     this.overlayEl.appendChild(modal);
@@ -874,11 +979,11 @@ class App {
       ]));
       return;
     }
-    for (const msg of this.state.messages) this.appendMessageDOM(msg.role, msg.content, msg.parts, msg.model, msg.time);
+    for (const msg of this.state.messages) this.appendMessageDOM(msg.role, msg.content, msg.parts, msg.model, msg.time, msg.id);
     this.chatArea.scrollTop = this.chatArea.scrollHeight;
   }
 
-  private appendMessageDOM(role: string, content: string, parts?: unknown[], model?: string, time?: number): void {
+  private appendMessageDOM(role: string, content: string, parts?: unknown[], model?: string, time?: number, msgId?: string): void {
     if (!content && (!parts || !parts.length)) return;
     const div = el("div", { className: "msg " + role + " group" });
 
@@ -1013,6 +1118,15 @@ class App {
         this.inputTextarea.style.height = this.inputTextarea.scrollHeight + "px";
       };
       actions.appendChild(revertAct);
+    }
+    // fork only for assistant
+    if (role === "assistant" && msgId) {
+      const forkAct = el("button", { className: "msg-action", title: "Fork from here" });
+      forkAct.innerHTML = "&#x2442;";
+      forkAct.onclick = () => {
+        vscode.postMessage({ type: "fork-session", sessionId: this.state.currentSessionId, messageID: msgId });
+      };
+      actions.appendChild(forkAct);
     }
     bubbleWrap.appendChild(actions);
 
@@ -1420,7 +1534,8 @@ class App {
             const role = (m.role as string) || info.role || "assistant";
             const model = info.modelID || (info.model && info.model.modelID) || "";
             const time = info.time && info.time.created ? Number(info.time.created) : undefined;
-            return { role, content, parts, model, time };
+            const id = (m.id as string) || (info.id as string) || "";
+            return { role, content, parts, model, time, id };
           });
           console.log(`[webview] session-loaded: id=${this.state.currentSessionId}, messages=${this.state.messages.length}`);
           this.renderMessages();
@@ -1516,6 +1631,29 @@ class App {
           }
           break;
         }
+        case "session-created":
+          console.log(`[webview] session-created: id=${(msg.session as any)?.id}`);
+          this.state.sessions.unshift(msg.session as Session);
+          this.renderSessionList();
+          this.switchSession((msg.session as any)?.id);
+          break;
+        case "session-summarized":
+          console.log(`[webview] session-summarized: id=${msg.sessionId}`);
+          break;
+        case "session-diff":
+          console.log(`[webview] session-diff: ${(msg.diff as any[])?.length} files`);
+          if (this.pendingDiffResolve) {
+            this.pendingDiffResolve(msg.diff as FileDiff[]);
+            this.pendingDiffResolve = null;
+          }
+          break;
+        case "providers":
+          console.log(`[webview] providers: ${(msg.providers as any[])?.length} providers`);
+          if (this.pendingProviderResolve) {
+            this.pendingProviderResolve(msg.providers as Array<{ id: string; name: string; key?: string; modelCount: number }>);
+            this.pendingProviderResolve = null;
+          }
+          break;
         case "error":
           console.error(`[webview] error from extension: ${msg.message}`);
           break;
@@ -1593,12 +1731,12 @@ class App {
   }
 
   private renderModels(): void {
-    const pill = document.querySelector(".model-pill");
+    const pill = document.querySelector("[data-part='model-pill']");
     if (pill) pill.innerHTML = "<span class='icon'>&#x2699;</span> " + (this.state.selectedModel || "Model") + " <span class='arrow' style='font-size:8px'>\u25BC</span>";
   }
 
   private renderAgents(): void {
-    const seg = this.root.querySelector(".agent-segmented");
+    const seg = this.root.querySelector("[data-part='agent-segmented']");
     if (!seg) return;
     seg.innerHTML = "";
     const defaultOrder = ["build", "plan", "compact"];
@@ -1612,12 +1750,12 @@ class App {
     }) : ["build", "plan", "review"];
     if (!this.state.selectedAgent && ags.includes("plan")) this.state.selectedAgent = "plan";
     for (const a of ags) {
-      const pill = el("button", { className: "agent-seg-btn" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
+      const pill = el("button", { className: "shrink-0 flex items-center justify-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2.5 py-1 rounded-md cursor-pointer transition-all duration-150 whitespace-nowrap hover:text-primary" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
       pill.textContent = a.charAt(0).toUpperCase() + a.slice(1);
       pill.onclick = () => {
         this.state.selectedAgent = a;
         this.state.selectedVariant = "";
-        seg.querySelectorAll(".agent-seg-btn").forEach(p => p.classList.remove("active"));
+        seg.querySelectorAll("[data-agent]").forEach(p => p.classList.remove("active"));
         pill.classList.add("active");
       };
       seg.appendChild(pill);
