@@ -1497,8 +1497,8 @@ class App {
 
   private newSession(): void {
     this.state.currentSessionId = null;
-    this.state.showSessions = false;
-    this.sessionsPanel.classList.add("hidden");
+    this.state.showSessions = true;
+    this.sessionsPanel.classList.remove("hidden");
     this.state.messages = [];
     this.renderMessages();
     this.renderSessionList();
@@ -1762,6 +1762,7 @@ class App {
         }
       } else if (type === "tool_result" || type === "tool-result") {
         const output = (event.content as string) || (event.output as string) || "";
+        if (output) this.appendStreaming("\n" + output.trimEnd() + "\n");
         if (output && name === "task") this.appendStreamingTask("", "done");
       } else if (type === "stderr") {
         if (content) this.appendStreaming("\n[stderr: " + content + "]\n");

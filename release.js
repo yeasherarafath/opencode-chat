@@ -16,7 +16,7 @@
  */
 
 const { execSync, spawnSync } = require("child_process");
-const { readFileSync, writeFileSync } = require("fs");
+const { readFileSync, writeFileSync, existsSync, mkdirSync } = require("fs");
 const path = require("path");
 
 const PKG_PATH = path.join(__dirname, "package.json");
@@ -137,8 +137,10 @@ function main() {
 
   // -- 3. Package VSIX
   console.log("  [3/5] Package VSIX...");
+  const releaseDir = path.join(__dirname, "release");
+  if (!existsSync(releaseDir)) mkdirSync(releaseDir, { recursive: true });
   const vsixName = `${pkg.name}-${next}.vsix`;
-  const vsixPath = path.join(__dirname, vsixName);
+  const vsixPath = path.join(releaseDir, vsixName);
   try {
     exec(`npx vsce package --out "${vsixPath}"`);
   } catch (e) {
