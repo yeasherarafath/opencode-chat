@@ -20,7 +20,7 @@ const path = require("path");
 const PKG_PATH = path.join(__dirname, "package.json");
 const TAG_PREFIX = "v";
 const args = process.argv.slice(2);
-const BUMP = args.find(a => /^[\d.]+$|^patch$|^minor$|^major$/.test(a)) || "patch";
+const BUMP = args.find(a => /^[\d][\d.]*(-[\w.]+)?$/u.test(a) || /^(patch|minor|major)$/.test(a)) || "patch";
 const DRY_RUN = args.includes("--dry-run");
 const FORCE = args.includes("--force");
 
