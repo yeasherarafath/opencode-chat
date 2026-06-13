@@ -1,4 +1,7 @@
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk";
+import { execFile } from "child_process";
+import * as path from "path";
+import * as os from "os";
 
 interface Session {
   id: string;
@@ -124,11 +127,29 @@ export class OpenCodeCli {
   }
 
   private async resolveBinary(): Promise<string | null> {
-    const { execFile } = await import("child_process");
-    const candidates = [this.binaryPath];
+    this.log(`resolveBinary: PATH=${process.env.PATH || "(empty)"}`);
+    this.log(`resolveBinary: binaryPath=${this.binaryPath}`);
+    const candidates: string[] = [this.binaryPath];
+
+    // add common platform-specific names
     if (this.binaryPath === "opencode") {
       candidates.push("opencode.exe", "opencode.cmd");
+      // try npm global paths (common issue on Windows)
+      const npmDir = path.join(os.homedir(), "AppData", "Roaming", "npm");
+      candidates.push(
+        path.join(npmDir, "opencode"),
+        path.join(npmDir, "opencode.cmd"),
+        path.join(npmDir, "opencode.exe"),
+      );
+      // also check LOCALAPPDATA
+      const localNpmDir = path.join(os.homedir(), "AppData", "Local", "npm");
+      candidates.push(
+        path.join(localNpmDir, "opencode"),
+        path.join(localNpmDir, "opencode.cmd"),
+        path.join(localNpmDir, "opencode.exe"),
+      );
     }
+
     for (const bin of candidates) {
       try {
         await new Promise<void>((resolve, reject) => {
@@ -143,6 +164,28 @@ export class OpenCodeCli {
         // try next
       }
     }
+
+    // fallback: use shell to resolve PATH (cmd /c on Windows, sh -c on Unix)
+    try {
+      const isWin = os.platform() === "win32";
+      const shell = isWin ? process.env.COMSPEC || "cmd.exe" : "/bin/sh";
+      const flag = isWin ? "/c" : "-c";
+      const output = await new Promise<string>((resolve, reject) => {
+        execFile(shell, [flag, isWin ? "where opencode" : "which opencode"], { timeout: 5000 }, (err, stdout) => {
+          if (err) reject(err);
+          else resolve(stdout.trim().split("\n")[0].trim());
+        });
+      });
+      if (output && !output.includes("Could not find") && !output.includes("not found")) {
+        const p = output.trim();
+        this.log(`resolveBinary: shell found binary at ${p}`);
+        this.binaryPath = p;
+        return p;
+      }
+    } catch {
+      this.log("resolveBinary: shell lookup failed");
+    }
+
     return null;
   }
 
@@ -166,24 +209,22 @@ export class OpenCodeCli {
       const resolved = bin || await this.resolveBinary();
       if (resolved) {
         this.log(`start: trying manual spawn with ${resolved}`);
-        const { execFile } = await import("child_process");
         const port = 4096 + Math.floor(Math.random() * 1000);
+        const url = `http://127.0.0.1:${port}`;
         const proc = execFile(resolved, ["serve", "--hostname=127.0.0.1", `--port=${port}`]);
-        const url = await new Promise<string>((resolve, reject) => {
-          let output = "";
-          const timeout = setTimeout(() => reject(new Error("Server start timeout")), 15000);
-          const onData = (chunk: Buffer) => {
-            output += chunk.toString();
-            const m = output.match(/on\s+(https?:\/\/[^\s]+)/);
-            if (m) { clearTimeout(timeout); resolve(m[1]); }
-          };
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            // server might already be up despite no output parsing — try health check
+            fetch(`${url}/health`).then(r => r.ok ? resolve() : reject(new Error("Not ready"))).catch(reject);
+          }, 5000);
+          const onData = () => { clearTimeout(timeout); resolve(); };
           proc.stdout?.on("data", onData);
           proc.stderr?.on("data", onData);
-          proc.on("exit", (code) => { clearTimeout(timeout); reject(new Error(`exit ${code}: ${output.slice(0, 200)}`)); });
+          proc.on("exit", (code) => { clearTimeout(timeout); reject(new Error(`exit ${code}`)); });
           proc.on("error", (err) => { clearTimeout(timeout); reject(err); });
         });
         this.serverUrl = url;
-        this.serverInstance = { url, close: () => { proc.kill(); proc.stdio?.forEach((s: any) => s?.destroy?.()); } };
+        this.serverInstance = { url, close: () => { proc.kill(); (proc as any).stdio?.forEach((s: any) => s?.destroy?.()); } };
         this.client = createOpencodeClient({ baseUrl: url }) as import("@opencode-ai/sdk/client").OpencodeClient;
         this.log(`start: manual spawn OK at ${url}`);
         return true;

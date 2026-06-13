@@ -11,6 +11,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
 
   constructor(extensionUri: vscode.Uri, cli: OpenCodeCli) {
     this.cli = cli;
+    this.extensionUri = extensionUri;
   }
 
   private log(msg: string): void {
@@ -19,22 +20,24 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
 
   async initialize(): Promise<void> {
     this.log("initialize() start");
+    // try start() first — uses createOpencode (cross-spawn) which handles PATH better
     try {
-      this.isInstalled = await this.cli.checkInstall();
-      this.log(`initialize() checkInstall done, isInstalled=${this.isInstalled}`);
+      const started = await this.cli.start();
+      this.log(`initialize() start done, started=${started}`);
+      if (started) {
+        this.isInstalled = true;
+        try { this.opencodeVersion = await this.cli.getVersion(); } catch { this.opencodeVersion = "sdk"; }
+      }
     } catch (e) {
-      this.log(`initialize() checkInstall threw: ${e}`);
-      this.isInstalled = false;
+      this.log(`initialize() start threw: ${e}`);
     }
-    if (this.isInstalled) {
+    // fallback: check if binary exists at all
+    if (!this.isInstalled) {
       try {
-        const started = await this.cli.start();
-        this.log(`initialize() start done, started=${started}`);
-        if (started) {
-          try { this.opencodeVersion = await this.cli.getVersion(); } catch { this.opencodeVersion = "sdk"; }
-        }
+        this.isInstalled = await this.cli.checkInstall();
+        this.log(`initialize() checkInstall done, isInstalled=${this.isInstalled}`);
       } catch (e) {
-        this.log(`initialize() start threw: ${e}`);
+        this.log(`initialize() checkInstall threw: ${e}`);
       }
     }
     this.log("initialize() calling sendInitialState");
