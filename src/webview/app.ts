@@ -1269,7 +1269,12 @@ class App {
         const body = el("div", { className: "patch-body hidden" });
         if (files && files.length) {
           for (const f of files) {
-            body.appendChild(el("div", { className: "patch-file" }, [txt(f)]));
+            const fileEl = el("div", { className: "patch-file" });
+            const link = el("span", { className: "patch-file-link" });
+            link.innerHTML = File + " " + f;
+            link.onclick = () => { vscode.postMessage({ type: "open-file", path: f }); };
+            fileEl.appendChild(link);
+            body.appendChild(fileEl);
           }
         }
         hdr.onclick = () => { body.classList.toggle("hidden"); };

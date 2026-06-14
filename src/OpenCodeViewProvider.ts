@@ -198,6 +198,11 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
           await this.exportToFile(message.sessionId as string).catch((e) => this.log(`exportToFile error: ${e}`));
           break;
         }
+        case "open-file": {
+          this.log(`handleMessage: open-file path=${message.path}`);
+          this.openFile(message.path as string);
+          break;
+        }
         case "open-diff":
           this.openDiff();
           break;
@@ -485,6 +490,21 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
       await vscode.window.showTextDocument(doc);
     } catch (e) {
       vscode.window.showErrorMessage(`Export failed: ${e}`);
+    }
+  }
+
+  private openFile(filePath: string): void {
+    try {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+      let uri: vscode.Uri;
+      if (workspaceRoot && !filePath.startsWith("/") && !/^[A-Za-z]:\\/.test(filePath)) {
+        uri = vscode.Uri.joinPath(workspaceRoot, filePath);
+      } else {
+        uri = vscode.Uri.file(filePath);
+      }
+      vscode.commands.executeCommand("vscode.open", uri);
+    } catch (e) {
+      this.log(`openFile error: ${e}`);
     }
   }
 
