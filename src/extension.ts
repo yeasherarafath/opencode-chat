@@ -68,6 +68,7 @@ export async function activate(context: vscode.ExtensionContext) {
       { webviewOptions: { retainContextWhenHidden: true } }
     )
   );
+  context.subscriptions.push({ dispose: () => provider.dispose() });
 
   context.subscriptions.push(
     vscode.commands.registerCommand("opencode-chat.openChat", () => {

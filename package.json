@@ -96,6 +96,17 @@
           "default": true,
           "description": "Kill the opencode server process tree when VS Code closes or the extension deactivates. Prevents orphaned processes."
         },
+        "opencode-chat.autoFetchSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-detect chat sessions created from the opencode CLI and show them in the webview session list. When disabled, only webview-created sessions appear until manual refresh."
+        },
+        "opencode-chat.autoFetchIntervalMs": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Polling interval in milliseconds as a fallback for auto-fetch. 0 = SSE only (instant, recommended). >0 = poll session list every N ms. Useful if SSE is unstable or you want explicit control."
+        },
         "opencode-chat.enableJsonLogs": {
           "type": [
             "boolean",

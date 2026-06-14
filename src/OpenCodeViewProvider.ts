@@ -62,6 +62,14 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
         this.log(`initialize() error dialog threw: ${e}`);
       }
     }
+    this.configChangeSub = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("opencode-chat.autoFetchSessions") ||
+          e.affectsConfiguration("opencode-chat.autoFetchIntervalMs")) {
+        this.log("initialize: config changed, restarting autoFetch");
+        this.startAutoFetch();
+      }
+    });
+    this.startAutoFetch();
     this.log("initialize() done");
   }
 
@@ -112,6 +120,12 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   private extensionUri: vscode.Uri = vscode.Uri.file("");
   private currentSessionId: string | undefined;
   private activeEditorSub: vscode.Disposable | null = null;
+
+  // --- Auto-fetch lifecycle ---
+  private autoFetchAbort: AbortController | null = null;
+  private autoFetchDebounce: NodeJS.Timeout | null = null;
+  private autoFetchConfigSub: vscode.Disposable | null = null;
+  private configChangeSub: vscode.Disposable | null = null;
 
   private async handleMessage(message: Record<string, unknown>): Promise<void> {
     if (!this.view) { this.log("handleMessage: no view, returning"); return; }
@@ -552,6 +566,78 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
 
   newSession(): void {
     this.view?.webview.postMessage({ type: "new-session-ready" });
+  }
+
+  // --- Auto-fetch: start SSE subscription or polling fallback ---
+  // Reads config from opencode-chat.autoFetchSessions + autoFetchIntervalMs.
+  // Cancels any existing subscription first. Safe to call repeatedly.
+  startAutoFetch(): void {
+    this.stopAutoFetch();
+    const cfg = vscode.workspace.getConfiguration("opencode-chat");
+    const enabled = cfg.get<boolean>("autoFetchSessions", true);
+    if (!enabled) { this.log("startAutoFetch: disabled by config"); return; }
+    const intervalMs = cfg.get<number>("autoFetchIntervalMs", 0);
+    if (!this.isInstalled) { this.log("startAutoFetch: CLI not installed, skip"); return; }
+
+    const ac = new AbortController();
+    this.autoFetchAbort = ac;
+    const fire = () => this.debouncedRefreshSessions();
+    this.log(`startAutoFetch: mode=${intervalMs > 0 ? "poll:" + intervalMs + "ms" : "sse"}`);
+
+    if (intervalMs > 0) {
+      this.cli.pollSessions(intervalMs, fire, ac.signal).catch((e) =>
+        this.log(`autoFetch poll exited: ${e}`)
+      );
+    } else {
+      const loop = async (): Promise<void> => {
+        let backoff = 1000;
+        while (!ac.signal.aborted) {
+          try {
+            await this.cli.subscribeGlobalEvents(fire, ac.signal);
+            // clean exit (signal aborted) → bail
+            if (ac.signal.aborted) break;
+            this.log("autoFetch SSE ended without error, reconnecting in 1s");
+            await new Promise((r) => setTimeout(r, 1000));
+            backoff = 1000;
+          } catch (e) {
+            if (ac.signal.aborted) break;
+            this.log(`autoFetch SSE error: ${e}; retry in ${backoff}ms`);
+            await new Promise((r) => setTimeout(r, backoff));
+            backoff = Math.min(backoff * 2, 30000);
+          }
+        }
+      };
+      loop().catch((e) => this.log(`autoFetch SSE loop crashed: ${e}`));
+    }
+  }
+
+  stopAutoFetch(): void {
+    if (this.autoFetchAbort) {
+      this.log("stopAutoFetch: aborting");
+      this.autoFetchAbort.abort();
+      this.autoFetchAbort = null;
+    }
+    if (this.autoFetchDebounce) {
+      clearTimeout(this.autoFetchDebounce);
+      this.autoFetchDebounce = null;
+    }
+  }
+
+  // Coalesce burst events (e.g. CLI bulk-import) into one refresh + webview post.
+  private debouncedRefreshSessions(): void {
+    if (this.autoFetchDebounce) return;
+    this.autoFetchDebounce = setTimeout(() => {
+      this.autoFetchDebounce = null;
+      this.refreshSessions().catch((e) => this.log(`autoFetch refresh error: ${e}`));
+    }, 250);
+  }
+
+  // Public: tear down everything. Called from extension deactivate().
+  dispose(): void {
+    this.stopAutoFetch();
+    this.autoFetchConfigSub?.dispose();
+    this.configChangeSub?.dispose();
+    this.activeEditorSub?.dispose();
   }
 
   private getHtml(webview: vscode.Webview): string {

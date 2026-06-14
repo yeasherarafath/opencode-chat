@@ -452,6 +452,64 @@ export class OpenCodeCli {
     return { ...session, messages };
   }
 
+  // --- Auto-fetch: SSE subscription to /global/event ---
+  // Emits session.created/updated/deleted from any opencode client (CLI/TUI/webview).
+  // `signal` cancels the loop. Reconnect with backoff is the caller's job.
+  async subscribeGlobalEvents(
+    onEvent: (e: { type: "session.created" | "session.updated" | "session.deleted"; info: SessionInfo }) => void,
+    signal: AbortSignal
+  ): Promise<void> {
+    if (!this.client) { this.log("subscribeGlobalEvents: client is null"); return; }
+    const events = await this.client.global.event();
+    const iterator = events.stream[Symbol.asyncIterator]();
+    try {
+      while (!signal.aborted) {
+        let next: IteratorResult<unknown, unknown>;
+        try {
+          next = await iterator.next();
+        } catch (e) {
+          this.log(`subscribeGlobalEvents: stream error: ${e}`);
+          throw e;
+        }
+        if (next.done) break;
+        const ev = next.value as { directory?: string; payload?: { type?: string; properties?: { info?: Session } } };
+        const type = ev?.payload?.type;
+        if (type !== "session.created" && type !== "session.updated" && type !== "session.deleted") continue;
+        const info = ev?.payload?.properties?.info;
+        if (!info?.id) continue;
+        onEvent({ type, info: sessionToInfo(info) });
+      }
+    } finally {
+      try { await (iterator as { return?: (v?: unknown) => Promise<unknown> }).return?.(undefined); } catch {}
+    }
+  }
+
+  // --- Auto-fetch: polling fallback ---
+  // Calls listSessions() every `intervalMs`; invokes `onUpdate` only when
+  // the id-set differs from the previous fetch. signal cancels the loop.
+  async pollSessions(
+    intervalMs: number,
+    onUpdate: (sessions: SessionInfo[]) => void,
+    signal: AbortSignal
+  ): Promise<void> {
+    if (intervalMs <= 0) return;
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    let prevIds = "";
+    while (!signal.aborted) {
+      try {
+        const sessions = await this.listSessions();
+        const ids = sessions.map((s) => s.id + ":" + s.updated_at).join("|");
+        if (ids !== prevIds) {
+          prevIds = ids;
+          onUpdate(sessions);
+        }
+      } catch (e) {
+        this.log(`pollSessions: listSessions error: ${e}`);
+      }
+      await sleep(intervalMs);
+    }
+  }
+
   async listModels(): Promise<string[]> {
     try {
       if (!this.client) { this.log("listModels: client is null"); return []; }
