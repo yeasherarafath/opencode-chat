@@ -139,6 +139,25 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function renderThinkBlock(content: string): HTMLElement {
+  const rc = el("div", { className: "reasoning" });
+  const hdr = el("div", { className: "reasoning-header" });
+  const hdrLeft = el("div", { className: "reasoning-header-left" });
+  hdrLeft.innerHTML = '<span class="icon">' + Lightbulb + '</span> <span class="reasoning-label">Reasoning</span>';
+  hdr.appendChild(hdrLeft);
+  const chevron = el("span", { className: "reasoning-chevron open" });
+  chevron.innerHTML = ChevronDown;
+  hdr.appendChild(chevron);
+  const body = el("div", { className: "reasoning-body open" });
+  if (content) body.appendChild(renderMarkdown(content));
+  hdr.onclick = () => {
+    const open = body.classList.toggle("open");
+    chevron.classList.toggle("open", open);
+  };
+  rc.append(hdr, body);
+  return rc;
+}
+
 function renderMarkdown(text: string): HTMLElement {
   const root = el("div", { className: "md" });
   // Split into code blocks and non-code sections.
@@ -167,7 +186,19 @@ function renderMarkdown(text: string): HTMLElement {
       pre.appendChild(codeEl);
       root.appendChild(pre);
     } else {
-      renderInline(part, root);
+      // Process non-code text: find <think>...</think> blocks on their own lines
+      let remaining = part;
+      while (remaining.length) {
+        const thinkMatch = remaining.match(/(?:^|\n)\s*<think>([\s\S]*?)<\/think>\s*(?:\n|$)/);
+        if (!thinkMatch || thinkMatch.index === undefined) {
+          renderInline(remaining, root);
+          break;
+        }
+        const before = remaining.slice(0, thinkMatch.index);
+        if (before.trim()) renderInline(before, root);
+        root.appendChild(renderThinkBlock(thinkMatch[1]));
+        remaining = remaining.slice(thinkMatch.index + thinkMatch[0].length);
+      }
     }
   }
   return root;
@@ -2165,7 +2196,7 @@ class App {
             let content = (m.content as string) || info.content || "";
             if (!content && parts) {
               content = parts
-                .filter((p: any) => p.type === "text" || p.type === "content")
+                .filter((p: any) => p.type === "text" || p.type === "content" || p.type === "reasoning")
                 .map((p: any) => p.text || p.content || "")
                 .join("\n");
             }
@@ -2232,11 +2263,15 @@ class App {
           console.log(`[webview] response-end streamingContentLen=${this.streamingContent.length} saved=${this.streamingSaved} parts=${this.streamingParts.length}`);
           this.finalizeStreaming();
           if (!this.streamingSaved) {
-            if (this.streamingContent || this.streamingParts.length) {
+            const parts = [...this.streamingParts];
+            if (this.streamingReasoning) {
+              parts.push({ type: "reasoning", text: this.streamingReasoning });
+            }
+            if (this.streamingContent || parts.length) {
               this.state.messages.push({
                 role: "assistant",
                 content: this.streamingContent,
-                parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
+                parts: parts.length ? parts : undefined,
               });
             } else {
               this.state.messages.push({
