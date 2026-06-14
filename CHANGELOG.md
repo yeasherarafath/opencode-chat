@@ -2,6 +2,38 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.2.0-beta.3] - 2026-06-14
+
+### Added
+- `<think>` tag rendering in markdown — collapsible reasoning accordion for server-reasoned content
+- Session auto-fetch with SSE subscription (instant) and polling fallback
+- JSON event logger for debugging SSE, CLI, and webview messages
+- File attachment chips with file picker dialog (`@` menu)
+- Session search/filter by title with keyword highlighting
+- Question card support for interactive tool questions
+- Slash commands menu (`/help`, `/diff`, `/fork`, `/share`, `/sessions`, etc.)
+- Diff viewer modal for session file changes
+- Server health check with automatic restart on failure
+- Patch file display with clickable file links
+- Pure mode option (`opencode-chat.pureMode`) to reduce subprocess count
+- Cleanup on deactivate option to kill orphaned server processes
+- Refresh models command
+
+### Fixed
+- Session error now shows real API error message instead of generic "Session error"
+- Model dropdown now hides immediately after selection
+- Variant dropdown opens/closes correctly with consistent positioning
+- Reasoning text preserved in fallback message when `message` event is missed
+- Session-loaded content includes reasoning text in message body
+- Inline code with HTML-like content (`<think>`, `<code>`) properly escaped
+- Markdown tables, lists, code blocks render correctly via `marked` parser
+
+### Changed
+- Replaced custom markdown parser with `marked` library for proper GFM support
+- Updated `@opencode-ai/sdk` to v1.17.6
+- Improved version detection and server startup logic
+- Enhanced streaming with part-based message rendering
+
 ## [0.1.0] - 2026-06-13
 
 ### Added
