@@ -225,12 +225,21 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
         case "get-files": {
           this.log("handleMessage: get-files");
           try {
-            const pattern = (message.pattern as string) || "*";
-            const exclude = (message.exclude as string) || "**/node_modules/**,**/.git/**";
-            const maxResults = (message.maxResults as number) || 50;
+            const rawQuery = (message.query as string) || "";
+            const escapeGlob = (s: string) => s.replace(/[\\/*?[\]{}!()@+]/g, "");
+            const q = escapeGlob(rawQuery).trim();
+            // when query present, narrow to files whose name contains the query;
+            // otherwise list everything (up to maxResults) for browse mode.
+            const pattern = (message.pattern as string)
+              || (q ? `**/*${q}*` : "**/*");
+            const exclude =
+              (message.exclude as string)
+              || "**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/out/**,**/.next/**,**/.nuxt/**,**/.cache/**,**/.turbo/**,**/.parcel-cache/**,**/coverage/**,**/.idea/**,**/.vscode-test/**,**/logs/**,**/vendor/**,**/*.lock,**/*.log";
+            const maxResults = (message.maxResults as number) || 2000;
             const files = await vscode.workspace.findFiles(pattern, `{${exclude}}`, maxResults);
             const paths = files.map(f => f.fsPath);
-            this.view.webview.postMessage({ type: "files", files: paths });
+            this.log(`get-files: pattern=${pattern} query="${rawQuery}" → ${paths.length} files`);
+            this.view.webview.postMessage({ type: "files", files: paths, query: rawQuery });
           } catch (e) {
             this.log(`get-files error: ${e}`);
             this.view.webview.postMessage({ type: "files", files: [] });

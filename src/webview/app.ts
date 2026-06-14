@@ -411,6 +411,9 @@ class App {
   private searchNavEl!: HTMLElement;
   private searchMatches: HTMLElement[] = [];
   private searchActiveIdx = -1;
+  private atFetchTimer: ReturnType<typeof setTimeout> | null = null;
+  private atLastQuery = "";
+  private atResultsByQuery: Map<string, string[]> = new Map();
 
   constructor() {
     this.root = document.getElementById("root")!;
@@ -848,10 +851,28 @@ class App {
     const before = val.slice(0, cursor);
     const atIdx = before.lastIndexOf("@");
     if (atIdx >= 0 && (atIdx === 0 || before[atIdx - 1] === " " || before[atIdx - 1] === "\n")) {
-      if (!this.state.workspaceFiles.length) {
-        vscode.postMessage({ type: "get-files", pattern: "**/*", exclude: "**/node_modules/**,**/.git/**", maxResults: 200 });
-      }
       const query = before.slice(atIdx + 1).toLowerCase();
+      this.atLastQuery = query;
+      // schedule a server-side find for this query (debounced) — covers the
+      // entire workspace recursively instead of relying on a stale snapshot.
+      if (this.atFetchTimer) clearTimeout(this.atFetchTimer);
+      this.atFetchTimer = setTimeout(() => {
+        if (this.atLastQuery !== query) return;
+        if (this.atResultsByQuery.has(query)) {
+          this.state.workspaceFiles = this.atResultsByQuery.get(query) || [];
+          this.renderAtMenu(query);
+          return;
+        }
+        vscode.postMessage({
+          type: "get-files",
+          query,
+          pattern: query ? `**/*${query}*` : "**/*",
+          exclude:
+            "**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/out/**,**/.next/**,**/.nuxt/**,**/.cache/**,**/.turbo/**,**/.parcel-cache/**,**/coverage/**,**/.idea/**,**/.vscode-test/**,**/logs/**,**/vendor/**,**/*.lock,**/*.log",
+          maxResults: query ? 200 : 2000,
+        });
+      }, query ? 120 : 0);
+      // render whatever we have now so the menu opens immediately
       this.renderAtMenu(query);
       this.atMenuEl.classList.remove("hidden");
     } else {
@@ -866,13 +887,37 @@ class App {
   private renderAtMenu(query: string): void {
     this.atMenuEl.innerHTML = "";
     const files = this.state.workspaceFiles || [];
-    const q = query.replace(/\//g, "\\");
-    const matched = files.filter(f => !q || f.toLowerCase().includes(q));
+    const norm = (s: string) => s.toLowerCase().replace(/\\/g, "/");
+    const q = norm(query.trim());
+    let matched: string[];
+    if (!q) {
+      matched = files.slice();
+    } else {
+      const scored: { f: string; score: number }[] = [];
+      for (const f of files) {
+        const nf = norm(f);
+        const parts = nf.split("/");
+        const name = parts[parts.length - 1] || nf;
+        let score = -1;
+        if (name === q) score = 100;
+        else if (name.startsWith(q)) score = 80;
+        else if (name.includes(q)) score = 60;
+        else if (nf.endsWith(q)) score = 50;
+        else if (nf.includes(q)) score = 30;
+        if (score >= 0) scored.push({ f, score });
+      }
+      scored.sort((a, b) => b.score - a.score || a.f.length - b.f.length);
+      matched = scored.map((s) => s.f);
+    }
 
     if (!matched.length) {
       if (!files.length) {
         const item = el("div", { className: "at-item" });
-        item.innerHTML = `<span class="at-icon file">📄</span><div class="at-body"><div class="at-name">Loading files...</div></div>`;
+        item.innerHTML = `<span class="at-icon file">📄</span><div class="at-body"><div class="at-name">Searching workspace...</div></div>`;
+        this.atMenuEl.appendChild(item);
+      } else {
+        const item = el("div", { className: "at-item", style: "cursor:default;opacity:.6" });
+        item.innerHTML = `<span class="at-icon file">📄</span><div class="at-body"><div class="at-name">No files match "${query}"</div></div>`;
         this.atMenuEl.appendChild(item);
       }
       const browse = el("div", { className: "at-browse" });
@@ -882,14 +927,14 @@ class App {
       return;
     }
 
-    const limit = query ? 24 : 6;
+    const limit = query ? 50 : 30;
     let lastDir = "";
     for (const f of matched.slice(0, limit)) {
       const parts = f.split(/[\\/]/);
       const name = parts.pop() || f;
       const dir = parts.join("/") || ".";
 
-      // directory header
+      // directory header (only when browsing, not when searching)
       if (dir !== lastDir && !query) {
         lastDir = dir;
         const hdr = el("div", { className: "at-item", style: "cursor:default;opacity:.5;font-size:10px;padding:4px 10px;text-transform:uppercase;letter-spacing:.04em" });
@@ -908,7 +953,7 @@ class App {
         lock: "🔒", vue: "💚", svelte: "🧡", astro: "🧡",
       };
       const icon = iconMap[ext] || "📄";
-      const shortDir = dir === "." ? "" : dir.length > 40 ? "…" + dir.slice(-38) : dir;
+      const shortDir = dir === "." ? "" : dir.length > 60 ? "…" + dir.slice(-58) : dir;
 
       item.innerHTML = `<span class="at-icon file">${icon}</span><div class="at-body"><div class="at-name">${name}</div><div class="at-dir">${shortDir}</div></div>`;
       item.onclick = () => {
@@ -922,6 +967,12 @@ class App {
         this.hideAtMenu();
       };
       this.atMenuEl.appendChild(item);
+    }
+
+    if (matched.length > limit) {
+      const more = el("div", { className: "at-item", style: "cursor:default;opacity:.55;font-size:11px" });
+      more.innerHTML = `<span class="at-icon file">⋯</span><div class="at-body"><div class="at-name">${matched.length - limit} more — keep typing to narrow</div></div>`;
+      this.atMenuEl.appendChild(more);
     }
 
     const browse = el("div", { className: "at-browse" });
@@ -2211,8 +2262,17 @@ class App {
           }
           break;
         }
-        case "files":
-          this.state.workspaceFiles = msg.files as string[];
+        case "files": {
+          const incoming = (msg.files as string[]) || [];
+          const incomingQuery = ((msg.query as string) || "").toLowerCase();
+          this.atResultsByQuery.set(incomingQuery, incoming);
+          // only swap visible workspaceFiles when the response matches the current query
+          if (incomingQuery === this.atLastQuery) {
+            this.state.workspaceFiles = incoming;
+          } else if (!incomingQuery) {
+            // baseline (empty query) fetch always populates state for prefix-style matching
+            this.state.workspaceFiles = incoming;
+          }
           if (!this.atMenuEl.classList.contains("hidden")) {
             const val = this.inputTextarea.value;
             const cursor = this.inputTextarea.selectionStart;
@@ -2224,6 +2284,7 @@ class App {
             }
           }
           break;
+        }
         case "file-picked": {
           const fp = msg.path as string;
           if (fp) {

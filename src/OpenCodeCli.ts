@@ -322,11 +322,20 @@ export class OpenCodeCli {
    * server. Returns true when a working client is available.
    */
   async ensureServerHealthy(): Promise<boolean> {
+    // a "healthy" server here means TCP-reachable. The /health endpoint may
+    // return 401/403 because the spawned server requires Basic auth — any HTTP
+    // response (success or auth-rejection) still proves the process is alive.
     const probe = async (): Promise<boolean> => {
       if (!this.client || !this.serverUrl) return false;
       try {
-        const res = await fetch(`${this.serverUrl}/health`);
-        return res.ok;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2000);
+        try {
+          await fetch(`${this.serverUrl}/health`, { signal: controller.signal });
+          return true;
+        } finally {
+          clearTimeout(timer);
+        }
       } catch {
         return false;
       }
@@ -349,8 +358,9 @@ export class OpenCodeCli {
     }
     try {
       const started = await this.start();
-      JsonLogger.log("meta", { event: "ensureServerHealthy-restart-done", started });
-      return started && (await probe());
+      const reachable = started && (await probe());
+      JsonLogger.log("meta", { event: "ensureServerHealthy-restart-done", started, reachable });
+      return reachable;
     } catch (e) {
       JsonLogger.log("error", { source: "ensureServerHealthy", error: String(e) });
       return false;
