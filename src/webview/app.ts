@@ -1456,10 +1456,15 @@ class App {
       bubble.appendChild(textEl);
     }
 
-    // pending question card (ai-chat-with-question.html design)
+    // pending question card — only show if not already rendered from parts
     if (role === "assistant" && this.state.pendingQuestion) {
-      const qs = this.state.pendingQuestion.questions as Array<Record<string, unknown>>;
-      if (qs && qs.length) bubble.appendChild(this.renderQuestionCard(qs, false));
+      const alreadyHasQuestion = parts && (parts as any[]).some((p: any) =>
+        (p.type === "tool" || p.type === "tool_use" || p.type === "tool-call") && p.tool === "question"
+      );
+      if (!alreadyHasQuestion) {
+        const qs = this.state.pendingQuestion.questions as Array<Record<string, unknown>>;
+        if (qs && qs.length) bubble.appendChild(this.renderQuestionCard(qs, false));
+      }
     }
 
     bubbleWrap.appendChild(bubble);
