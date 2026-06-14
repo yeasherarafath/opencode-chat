@@ -149,6 +149,7 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^1.17.4"
+    "@opencode-ai/sdk": "^1.17.4",
+    "lucide-static": "^1.18.0"
   }
 }

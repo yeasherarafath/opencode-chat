@@ -3,6 +3,15 @@ declare function acquireVsCodeApi(): VscodeApi;
 
 const vscode = acquireVsCodeApi();
 
+import {
+  AlertTriangle, Archive, ArrowUp, Bot, Camera, Check, CheckCircle,
+  ChevronDown, ChevronUp, Circle, Clock, Copy, File, GitBranch,
+  GitCompare, GitPullRequest, Headphones, Image, Info, Lightbulb,
+  Loader2, MessageSquare, Paperclip, Pencil, Play, Plus, RefreshCw,
+  RotateCcw, Settings, Share2, Square, Trash2, User, Video, Wrench, X,
+  XCircle,
+} from "lucide-static";
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, a?: Record<string, string>, c?: (HTMLElement | Text)[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (a) for (const [k, v] of Object.entries(a)) {
@@ -422,15 +431,15 @@ class App {
     this.searchBarEl = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 bg-surface-dim border-b border-outline-variant hidden shrink-0" });
     this.searchInput = el("input", { className: "flex-1 bg-surface-container-lowest border border-outline-variant rounded-sm px-2 py-1 text-xs outline-none text-on-surface font-ui placeholder:text-on-surface-variant/60 focus:border-primary-container", placeholder: "Search messages\u2026", type: "text" }) as HTMLInputElement;
     const searchClose = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-0.5 text-xs hover:text-on-surface shrink-0", title: "Close search (Escape)" });
-    searchClose.textContent = "\u2715";
+    searchClose.innerHTML = X;
     searchClose.onclick = () => this.toggleSearch(false);
     this.searchNavEl = el("span", { className: "text-xs text-on-surface-variant/70 shrink-0 w-10 text-right" });
     this.searchNavEl.textContent = "0/0";
     const searchUp = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-0.5 text-xs hover:text-on-surface shrink-0", title: "Previous match" });
-    searchUp.textContent = "\u25B2";
+    searchUp.innerHTML = ChevronUp;
     searchUp.onclick = () => this.searchPrev();
     const searchDown = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-0.5 text-xs hover:text-on-surface shrink-0", title: "Next match" });
-    searchDown.textContent = "\u25BC";
+    searchDown.innerHTML = ChevronDown;
     searchDown.onclick = () => this.searchNext();
     this.searchInput.oninput = () => this.doSearch(this.searchInput.value);
     this.searchInput.onkeydown = (e) => {
@@ -467,11 +476,11 @@ class App {
     };
     right.appendChild(sessBtn);
     const histBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "History" });
-    histBtn.innerHTML = "<span class='icon'>&#x1F4CB;</span>";
+    histBtn.innerHTML = "<span class='icon'>" + Clock + "</span>";
     histBtn.onclick = () => { this.state.showSessions = !this.state.showSessions; this.sessionsPanel.classList.toggle("hidden"); };
     right.appendChild(histBtn);
     const providersBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Providers" });
-    providersBtn.innerHTML = "&#x2699;";
+    providersBtn.innerHTML = Settings;
     providersBtn.onclick = () => {
       vscode.postMessage({ type: "get-providers" });
       this.showProvidersModal();
@@ -485,14 +494,14 @@ class App {
     const bar = el("div", { className: "flex flex-col gap-1.5 p-2 bg-surface-container border-b border-outline-variant shrink-0" });
     const top = el("div", { className: "flex items-center justify-between px-0.5" });
     const label = el("span", { className: "text-label text-on-surface-variant flex items-center gap-1 uppercase tracking-wide" });
-    label.innerHTML = "<span class='icon'>&#x2699;</span> Agent Mode";
+    label.innerHTML = "<span class='icon'>" + Bot + "</span> Agent Mode";
     top.appendChild(label);
     const newBtn = el("button", { className: "flex items-center gap-1 text-label text-primary bg-primary/10 border-none px-2.5 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:bg-primary/20" });
-    newBtn.innerHTML = "<span class='icon'>+</span> New Chat";
+    newBtn.innerHTML = "<span class='icon'>" + Plus + "</span> New Chat";
     newBtn.onclick = () => this.newSession();
     top.appendChild(newBtn);
     const refreshBtn = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:text-primary hover:bg-white/4", title: "Refresh session" });
-    refreshBtn.innerHTML = "<span class='icon'>&#x21BB;</span>";
+    refreshBtn.innerHTML = "<span class='icon'>" + RefreshCw + "</span>";
     refreshBtn.onclick = () => this.refreshSession();
     top.appendChild(refreshBtn);
     bar.appendChild(top);
@@ -509,7 +518,7 @@ class App {
         seg.querySelectorAll("[data-agent]").forEach(p => p.classList.remove("active"));
         pill.classList.add("active");
         const vp = document.querySelector("[data-part='variant-pill']");
-        if (vp) vp.innerHTML = "<span class='icon'>&#x2699;</span> Balanced <span class='arrow' style='font-size:8px'>\u25BC</span>";
+        if (vp) vp.innerHTML = "<span class='icon'>" + Settings + "</span> Balanced <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
         this.variantPopup.querySelectorAll(".variant-opt").forEach(el => el.classList.remove("on"));
       };
       seg.appendChild(pill);
@@ -554,7 +563,7 @@ class App {
         item.onclick = () => this.switchSession(s.id);
 
         const icon = el("div", { className: "shrink-0 w-8 h-8 rounded-md bg-primary/12 flex items-center justify-center text-sm text-primary" });
-        icon.textContent = "\uD83D\uDCAC";
+        icon.innerHTML = MessageSquare;
         item.appendChild(icon);
 
         const body = el("div", { className: "flex-1 min-w-0" });
@@ -569,7 +578,7 @@ class App {
 
         const actions = el("div", { className: "absolute right-2 top-1 bottom-1 flex flex-col justify-between opacity-0 transition-opacity duration-150 [.session-item:hover_&]:opacity-50 [&:hover]:opacity-100" });
         const renameBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "Rename" });
-        renameBtn.textContent = "\u270F";
+        renameBtn.innerHTML = Pencil;
         renameBtn.onclick = (e) => {
           e.stopPropagation();
           const input = el("input", { className: "flex-1 bg-transparent text-on-surface border border-primary-container px-1.5 py-0.5 text-xs rounded-sm outline-none font-ui", value: s.title || "", type: "text" }) as HTMLInputElement;
@@ -588,17 +597,17 @@ class App {
           input.onblur = save;
         };
         const shareBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "Share" });
-        shareBtn.textContent = "\u2197";
+        shareBtn.innerHTML = Share2;
         shareBtn.onclick = (e) => { e.stopPropagation(); vscode.postMessage({ type: "share-session", sessionId: s.id }); };
         const diffBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "Show changes" });
-        diffBtn.textContent = "\u0394";
+        diffBtn.innerHTML = GitCompare;
         diffBtn.onclick = (e) => {
           e.stopPropagation();
           vscode.postMessage({ type: "get-session-diff", sessionId: s.id });
           this.showDiffModal(s.id);
         };
         const delBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-error text-error", title: "Delete" });
-        delBtn.textContent = "\u2715";
+        delBtn.innerHTML = Trash2;
         delBtn.onclick = (e) => { e.stopPropagation(); this.deleteSession(s.id); };
         actions.append(renameBtn, shareBtn, diffBtn, delBtn);
         item.appendChild(actions);
@@ -620,7 +629,7 @@ class App {
 
     const inputToolbar = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant" });
     const modelPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Selected model", "data-part": "model-pill" });
-    modelPill.innerHTML = "<span class='icon'>&#x2699;</span> " + (this.state.selectedModel || "Model") + " <span class='arrow' style='font-size:8px'>\u25BC</span>";
+    modelPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedModel || "Model") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
     const modelPopup = el("div", { className: "absolute bottom-full left-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[220px] z-100 shadow-lg" });
     modelPopup.style.maxHeight = "260px";
     modelPopup.style.display = "none";
@@ -647,7 +656,7 @@ class App {
           opt.onclick = () => {
             this.state.selectedModel = m;
             modelPopup.classList.add("hidden");
-            modelPill.innerHTML = "<span class='icon'>&#x2699;</span> " + (m || "Model") + " <span class='arrow' style='font-size:8px'>\u25BC</span>";
+            modelPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (m || "Model") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
           };
           modelList.appendChild(opt);
         }
@@ -673,7 +682,7 @@ class App {
     inputToolbar.appendChild(modelPopup);
 
     const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Variant", "data-part": "variant-pill" });
-    variantPill.innerHTML = "<span class='icon'>&#x2699;</span> " + (this.state.selectedVariant || "Balanced") + " <span class='arrow' style='font-size:8px'>\u25BC</span>";
+    variantPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedVariant || "Balanced") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
     this.variantPopup = el("div", { className: "absolute bottom-full left-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[120px] z-100 shadow-lg hidden" });
     const vars = VARIANTS.filter(Boolean);
     for (const v of vars) {
@@ -683,7 +692,7 @@ class App {
         opt.classList.add("on");
         this.state.selectedVariant = v;
         this.variantPopup.classList.add("hidden");
-        variantPill.innerHTML = "<span class='icon'>&#x2699;</span> " + v + " <span class='arrow' style='font-size:8px'>\u25BC</span>";
+        variantPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + v + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
       };
       this.variantPopup.appendChild(opt);
     }
@@ -740,7 +749,7 @@ class App {
     const footer = el("div", { className: "flex items-center justify-between px-2.5 py-1.5 border-t border-outline-variant" });
     const left = el("div", { className: "flex items-center gap-0.5" });
     const attachBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-1 rounded-sm transition-all duration-150 flex items-center justify-center hover:text-primary hover:bg-white/4", title: "Attach file" });
-    attachBtn.innerHTML = "<span class='icon'>&#x1F4CE;</span>";
+    attachBtn.innerHTML = "<span class='icon'>" + Paperclip + "</span>";
     attachBtn.onclick = () => vscode.postMessage({ type: "show-file-picker" });
     left.appendChild(attachBtn);
     footer.appendChild(left);
@@ -748,12 +757,12 @@ class App {
     const right = el("div", { className: "flex gap-1 items-center" });
     const actions = el("div", { className: "flex gap-1 items-center" });
     this.abortBtn = el("button", { className: "w-8 h-8 rounded-full bg-transparent text-error border border-error cursor-pointer flex items-center justify-center transition-all duration-150 text-sm hover:bg-error/10", style: "display:none", title: "Abort" });
-    this.abortBtn.textContent = "\u25A0";
+    this.abortBtn.innerHTML = Square;
     this.abortBtn.onclick = () => vscode.postMessage({ type: "abort" });
     actions.appendChild(this.abortBtn);
 
     this.sendBtn = el("button", { className: "w-8 h-8 rounded-full bg-primary-container text-on-primary border-none cursor-pointer flex items-center justify-center transition-all duration-150 hover:scale-105 active:scale-95", title: "Send" });
-    this.sendBtn.innerHTML = "<span class='icon'>&#x2191;</span>";
+    this.sendBtn.innerHTML = "<span class='icon'>" + ArrowUp + "</span>";
     this.sendBtn.onclick = () => this.send();
     actions.appendChild(this.sendBtn);
     right.appendChild(actions);
@@ -1100,7 +1109,7 @@ class App {
     // avatar — per ai-chat-with-question.html design
     const avatarWrap = el("div", { className: "avatar-wrap" });
     const avatar = el("div", { className: "avatar" });
-    avatar.innerHTML = role === "user" ? "&#x1F464;" : "&#x25C7;";
+    avatar.innerHTML = role === "user" ? User : Bot;
     avatarWrap.appendChild(avatar);
     div.appendChild(avatarWrap);
 
@@ -1162,15 +1171,16 @@ class App {
           durStr = ms < 1000 ? Math.round(ms) + "ms" : Math.round(ms / 1000) + "s";
         }
 
-        let icon = "\u2699";
+        let icon = Wrench;
         let statusClass = "";
-        if (stStatus === "running") { icon = "\u23F3"; statusClass = " running"; }
-        else if (stStatus === "completed") { icon = "\u2705"; statusClass = " done"; }
-        else if (stStatus === "error") { icon = "\u274C"; statusClass = " error"; }
+        let spinClass = "";
+        if (stStatus === "running") { icon = Loader2; statusClass = " running"; spinClass = " spin"; }
+        else if (stStatus === "completed") { icon = CheckCircle; statusClass = " done"; }
+        else if (stStatus === "error") { icon = XCircle; statusClass = " error"; }
 
         const tc = el("div", { className: "tool-call" + statusClass });
         const nameLine = el("div", { className: "tool-name" });
-        nameLine.innerHTML = icon + " Tool: " + toolName + (durStr ? " \u00B7 " + durStr : "") + (callID ? " \u00B7 " + callID.slice(0, 12) : "");
+        nameLine.innerHTML = "<span class='" + spinClass + "'>" + icon + "</span> Tool: " + toolName + (durStr ? " \u00B7 " + durStr : "") + (callID ? " \u00B7 " + callID.slice(0, 12) : "");
         tc.appendChild(nameLine);
 
         // collapsible input/output
@@ -1181,7 +1191,7 @@ class App {
         }
         if (st?.output || st?.error) {
           const outText = (st?.output as string) || (st?.error as string) || "";
-          if (stStatus === "error") details.appendChild(el("div", { className: "tool-detail-label" }, [txt("\u26A0 Error:")]));
+          if (stStatus === "error") details.appendChild(el("div", { className: "tool-detail-label" }, [txt(AlertTriangle + " Error:")]));
           else details.appendChild(el("div", { className: "tool-detail-label" }, [txt("Output:")]));
           details.appendChild(el("div", { className: "tool-result-content" }, [txt(outText.length > 500 ? outText.slice(0, 500) + "..." : outText)]));
         }
@@ -1216,10 +1226,10 @@ class App {
           if (ms < 1000) durStr = Math.round(ms) + "ms";
           else durStr = Math.round(ms / 1000) + "s";
         }
-        hdrLeft.innerHTML = '<span class="icon">\uD83D\uDCA1</span> <span>Reasoned for ' + durStr + '</span>';
+        hdrLeft.innerHTML = '<span class="icon">' + Lightbulb + '</span> <span>Reasoned for ' + durStr + '</span>';
         hdr.appendChild(hdrLeft);
         const chevron = el("span", { className: "reasoning-chevron" });
-        chevron.textContent = "\u23F7"; // ⏷ expand_more
+        chevron.innerHTML = ChevronDown;
         hdr.appendChild(chevron);
         const body = document.createElement("div");
         body.className = "reasoning-body";
@@ -1235,7 +1245,7 @@ class App {
       if (part.type === "step-start") {
         const snap = (part as any).snapshot as string | undefined;
         const el_ = el("div", { className: "step-start" });
-        el_.textContent = "\u25B7 Step started" + (snap ? " \u00B7 snapshot " + snap.slice(0, 8) : "");
+        el_.innerHTML = Play + " Step started" + (snap ? " \u00B7 snapshot " + snap.slice(0, 8) : "");
         bubble.appendChild(el_);
       }
       if (part.type === "step-finish") {
@@ -1255,7 +1265,7 @@ class App {
         const pc = el("div", { className: "patch" });
         const hdr = el("div", { className: "patch-header" });
         const fileCount = files?.length || 0;
-        hdr.innerHTML = '\uD83D\uDCC1 ' + fileCount + ' file(s) changed' + (hash ? ' \u00B7 hash ' + hash.slice(0, 8) : '');
+        hdr.innerHTML = GitPullRequest + ' ' + fileCount + ' file(s) changed' + (hash ? ' \u00B7 hash ' + hash.slice(0, 8) : '');
         const body = el("div", { className: "patch-body hidden" });
         if (files && files.length) {
           for (const f of files) {
@@ -1270,7 +1280,7 @@ class App {
       if (part.type === "snapshot") {
         const snap = (part as any).snapshot as string;
         const el_ = el("div", { className: "snapshot" });
-        el_.textContent = "\uD83D\uDCF8 Snapshot " + (snap ? snap.slice(0, 8) : "");
+        el_.innerHTML = Camera + " Snapshot " + (snap ? snap.slice(0, 8) : "");
         bubble.appendChild(el_);
       }
       if (part.type === "file") {
@@ -1285,8 +1295,8 @@ class App {
           img.alt = filename || "image";
           fc.appendChild(img);
         } else {
-          const icon = mime?.startsWith("image/") ? "\uD83D\uDDBC" : mime?.startsWith("video/") ? "\uD83C\uDFA5" : mime?.startsWith("audio/") ? "\uD83C\uDFA7" : "\uD83D\uDCC4";
-          fc.innerHTML = icon + ' <a href="' + url + '" target="_blank">' + (filename || url) + '</a>';
+          const fileIcon = mime?.startsWith("image/") ? Image : mime?.startsWith("video/") ? Video : mime?.startsWith("audio/") ? Headphones : File;
+          fc.innerHTML = fileIcon + ' <a href="' + url + '" target="_blank">' + (filename || url) + '</a>';
         }
         bubble.appendChild(fc);
       }
@@ -1294,7 +1304,7 @@ class App {
         const name = (part as any).name as string;
         const src = (part as any).source as { value: string; start: number; end: number } | undefined;
         const ac = el("div", { className: "agent-part" });
-        ac.textContent = "\uD83E\uDD16 Agent: " + name + (src ? " [lines " + src.start + "-" + src.end + "]" : "");
+        ac.innerHTML = Bot + " Agent: " + name + (src ? " [lines " + src.start + "-" + src.end + "]" : "");
         bubble.appendChild(ac);
       }
       if (part.type === "retry") {
@@ -1302,7 +1312,7 @@ class App {
         const err = (part as any).error as Record<string, unknown> | undefined;
         const rc = el("div", { className: "retry-part" });
         const errMsg = err?.data ? ((err.data as any)?.message || "") : (err?.message || "");
-        rc.innerHTML = '\uD83D\uDD04 Retry #' + attempt + (errMsg ? ": " + errMsg : "");
+        rc.innerHTML = RotateCcw + ' Retry #' + attempt + (errMsg ? ": " + errMsg : "");
         if (err) {
           rc.onclick = () => {
             const detail = rc.querySelector(".retry-detail");
@@ -1318,7 +1328,7 @@ class App {
       if (part.type === "compaction") {
         const auto = (part as any).auto as boolean;
         const cc = el("div", { className: "compaction" });
-        cc.textContent = "\uD83D\uDCD0 Session compacted" + (auto ? " (auto)" : "");
+        cc.innerHTML = Archive + " Session compacted" + (auto ? " (auto)" : "");
         bubble.appendChild(cc);
       }
     }
@@ -1341,7 +1351,7 @@ class App {
     const actions = el("div", { className: "msg-actions" });
     // copy for both roles
     const copyAct = el("button", { className: "msg-action", title: "Copy message" });
-    copyAct.innerHTML = "&#x1F4CB;";
+    copyAct.innerHTML = Copy;
     copyAct.onclick = () => {
       const txt = content || (parts ? parts.map((p: any) => p.text || "").filter(Boolean).join("\n") : "") || "";
       navigator.clipboard.writeText(txt).catch(() => {});
@@ -1350,7 +1360,7 @@ class App {
     // revert only for user
     if (role === "user") {
       const revertAct = el("button", { className: "msg-action", title: "Revert" });
-      revertAct.innerHTML = "&#x21A9;";
+      revertAct.innerHTML = RotateCcw;
       revertAct.onclick = () => {
         this.inputTextarea.value = content || "";
         this.inputTextarea.focus();
@@ -1362,7 +1372,7 @@ class App {
     // fork only for assistant
     if (role === "assistant" && msgId) {
       const forkAct = el("button", { className: "msg-action", title: "Fork from here" });
-      forkAct.innerHTML = "&#x2442;";
+      forkAct.innerHTML = GitBranch;
       forkAct.onclick = () => {
         vscode.postMessage({ type: "fork-session", sessionId: this.state.currentSessionId, messageID: msgId });
       };
@@ -1385,7 +1395,7 @@ class App {
     this.streamingMsgEl = el("div", { className: "msg assistant group animate-pulse" });
     const avatarWrap = el("div", { className: "avatar-wrap" });
     const avatar = el("div", { className: "avatar" });
-    avatar.innerHTML = "&#x25C7;";
+    avatar.innerHTML = Bot;
     avatarWrap.appendChild(avatar);
     this.streamingMsgEl.appendChild(avatarWrap);
     const bubbleWrap = el("div", { className: "bubble-wrap" });
@@ -1509,7 +1519,7 @@ class App {
         for (const opt of qOpts) {
           const lbl = el("label", { className: "q-chk" });
           const box = el("div", { className: "q-chk-box" });
-          box.innerHTML = "<span class='icon'>\u2713</span>";
+          box.innerHTML = "<span class='icon'>" + Check + "</span>";
           lbl.appendChild(box);
           lbl.appendChild(txt(opt));
           lbl.onclick = () => {
@@ -1573,7 +1583,7 @@ class App {
     const hdr = el("div", { className: "task-header" });
     const hdrLeft = el("div", { className: "task-header-left" });
     const iconContainer = el("div", { className: "task-icon-container" + (isWorking ? " working" : "") });
-    iconContainer.innerHTML = isDone ? "&#x2714;" : isError ? "&#x2718;" : "&#x25CB;";
+    iconContainer.innerHTML = isDone ? CheckCircle : isError ? XCircle : Circle;
     hdrLeft.appendChild(iconContainer);
     const titleSection = el("div", { className: "task-title-section" });
     const titleEl = el("span", { className: "task-title" }, [txt(title)]);
@@ -1584,7 +1594,7 @@ class App {
     hdrLeft.appendChild(titleSection);
     hdr.appendChild(hdrLeft);
     const chevron = el("span", { className: "task-chevron" });
-    chevron.textContent = "\u23F7"; // ⏷ expand_more
+    chevron.innerHTML = ChevronDown;
     hdr.appendChild(chevron);
     card.appendChild(hdr);
 
@@ -1598,7 +1608,7 @@ class App {
       itemIcon.className = "task-item-icon pulsing";
     } else if (isDone) {
       itemIcon.className = "task-item-icon checked";
-      itemIcon.textContent = "\u2714";
+      itemIcon.innerHTML = Check;
     } else {
       itemIcon.className = "task-item-icon unchecked";
     }
@@ -1615,7 +1625,7 @@ class App {
     if (desc && desc !== title) {
       const infoItem = el("div", { className: "task-item pending" });
       const infoIcon = el("div", { className: "task-item-icon unchecked" });
-      infoIcon.textContent = "\u2139";
+      infoIcon.innerHTML = Info;
       infoItem.appendChild(infoIcon);
       const infoLabel = el("span", { className: "task-item-label" }, [txt(desc)]);
       infoItem.appendChild(infoLabel);
@@ -1624,7 +1634,7 @@ class App {
     if (agentType) {
       const agentItem = el("div", { className: "task-item pending" });
       const agentIcon = el("div", { className: "task-item-icon unchecked" });
-      agentIcon.textContent = "\u2699";
+      agentIcon.innerHTML = Bot;
       agentItem.appendChild(agentIcon);
       const agentLabel = el("span", { className: "task-item-label" }, [txt("Agent: " + agentType)]);
       agentItem.appendChild(agentLabel);
@@ -1637,7 +1647,7 @@ class App {
       body.appendChild(outEl);
     }
     if (errMsg) {
-      body.appendChild(el("div", { className: "task-error" }, [txt("\u26A0 " + errMsg)]));
+      body.appendChild(el("div", { className: "task-error" }, [txt(AlertTriangle + " " + errMsg)]));
     }
     card.appendChild(body);
 
@@ -2083,7 +2093,7 @@ class App {
 
   private renderModels(): void {
     const pill = document.querySelector("[data-part='model-pill']");
-    if (pill) pill.innerHTML = "<span class='icon'>&#x2699;</span> " + (this.state.selectedModel || "Model") + " <span class='arrow' style='font-size:8px'>\u25BC</span>";
+    if (pill) pill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedModel || "Model") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
   }
 
   private renderAgents(): void {
@@ -2109,7 +2119,7 @@ class App {
         seg.querySelectorAll("[data-agent]").forEach(p => p.classList.remove("active"));
         pill.classList.add("active");
         const vp = document.querySelector("[data-part='variant-pill']");
-        if (vp) vp.innerHTML = "<span class='icon'>&#x2699;</span> Balanced <span class='arrow' style='font-size:8px'>\u25BC</span>";
+        if (vp) vp.innerHTML = "<span class='icon'>" + Settings + "</span> Balanced <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
         this.variantPopup.querySelectorAll(".variant-opt").forEach(el => el.classList.remove("on"));
       };
       seg.appendChild(pill);
@@ -2134,7 +2144,7 @@ class App {
           (c.attached ? " bg-primary-container/20 text-primary border-primary-container" : " bg-surface-container-low text-on-surface-variant border-outline-variant hover:border-primary hover:text-primary"),
         title: c.path,
       });
-      chip.innerHTML = (c.attached ? "&#x2715;" : "&#x2295;") + " " + name;
+      chip.innerHTML = (c.attached ? X : Plus) + " " + name;
       chip.onclick = () => this.toggleFileAttachment(c.path);
       this.fileChipsEl.appendChild(chip);
     }
