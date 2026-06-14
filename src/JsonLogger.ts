@@ -2,7 +2,20 @@ import * as fs from "fs";
 import * as path from "path";
 import type { OutputChannel } from "vscode";
 
-type Category = "sse-event" | "cli-event" | "webview-in" | "webview-out" | "error" | "meta";
+type Category =
+  | "sse-event"
+  | "sse-skipped"
+  | "sse-foreign-session"
+  | "sse-session-status"
+  | "sse-unhandled-event"
+  | "sse-part-unhandled"
+  | "sse-part-unhandled-tool-state"
+  | "sse-part-no-delta"
+  | "cli-event"
+  | "webview-in"
+  | "webview-out"
+  | "error"
+  | "meta";
 
 interface LogEntry {
   ts: string;

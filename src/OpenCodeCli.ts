@@ -583,8 +583,13 @@ export class OpenCodeCli {
           (props.info as Record<string, unknown>)?.sessionID as string ||
           props.sessionID as string;
 
-        if (eventSessionId && eventSessionId !== sessionId) {
-          if (!hasStarted) continue;
+        const sessionMismatch = !!(eventSessionId && eventSessionId !== sessionId);
+        if (sessionMismatch && !hasStarted) {
+          JsonLogger.log("sse-skipped", { reason: "session-mismatch-prestart", etype: event.type, eventSessionId, sessionId });
+          continue;
+        }
+        if (sessionMismatch) {
+          JsonLogger.log("sse-foreign-session", { etype: event.type, eventSessionId, sessionId });
         }
 
         const etype = event.type as string;
@@ -607,13 +612,22 @@ export class OpenCodeCli {
               emit({ type: "tool-result", name: toolName, output: state?.output as string, content: state?.output as string, id: part?.id as string });
             } else if (st === "error") {
               emit({ type: "tool-result", name: toolName, output: state?.error as string, content: state?.error as string, id: part?.id as string });
+            } else {
+              JsonLogger.log("sse-part-unhandled-tool-state", { partId, toolName, status: st, part });
             }
-          } else if (ptype === "reasoning" && delta) {
-            emit({ type: "reasoning", text: delta });
+          } else if (ptype === "reasoning") {
+            if (delta) {
+              emit({ type: "reasoning", text: delta });
+            } else {
+              JsonLogger.log("sse-part-no-delta", { ptype, part });
+            }
           } else if (ptype === "step-start" || ptype === "step-finish" || ptype === "snapshot" || ptype === "patch" || ptype === "file" || ptype === "agent" || ptype === "retry" || ptype === "compaction") {
             emit({ type: ptype, part });
           } else if (delta) {
             emit({ type: "text", content: delta });
+          } else {
+            JsonLogger.log("sse-part-unhandled", { ptype, part, props });
+            emit({ type: "raw-part", ptype, part: part as any });
           }
         } else if (etype === "message.updated") {
           hasStarted = true;
@@ -641,21 +655,29 @@ export class OpenCodeCli {
                 lastMessageSig.set(msgId, sig);
                 knownMessageIds.add(msgId);
                 emit({ type: "message", info, role: "assistant", parts: mparts, content: mcontent, id: msgId });
+              } else {
+                JsonLogger.log("sse-skipped", { reason: "message-unchanged", msgId, sig });
               }
             } else if (!knownMessageIds.has(msgId)) {
               pendingEmptyMsgIds.add(msgId);
               this.log(`message.updated ${msgId}: deferred (empty content, ${mparts.length} parts)`);
             }
+          } else {
+            JsonLogger.log("sse-skipped", { reason: "non-assistant-message.updated", etype, info });
           }
           continue;
         } else if (etype === "session.status") {
           const status = props.status as Record<string, unknown> | undefined;
+          JsonLogger.log("sse-session-status", { status, hasStarted });
           if (status?.type === "idle" && hasStarted) {
             break;
           }
         } else if (etype === "message.removed" || etype === "session.error") {
           emit({ type: "error", message: (props.message as string) || "Session error" });
           break;
+        } else {
+          JsonLogger.log("sse-unhandled-event", { etype, properties: props });
+          emit({ type: "raw-event", etype, properties: props as any });
         }
       }
 
@@ -705,17 +727,24 @@ export class OpenCodeCli {
   }
 
   async runCliCommand(args: string[]): Promise<string> {
+    JsonLogger.log("meta", { event: "runCliCommand-start", args });
     const { execFile } = await import("child_process");
     return new Promise((resolve, reject) => {
       execFile("opencode", args, { cwd: this.cwd || process.cwd(), maxBuffer: 10 * 1024 * 1024, timeout: 30000 }, (err, stdout, stderr) => {
-        if (err) reject(new Error(stderr.trim() || err.message));
-        else resolve(stdout.trim());
+        if (err) {
+          JsonLogger.log("error", { source: "runCliCommand", args, error: err.message, stderr: stderr?.slice(0, 2000) });
+          reject(new Error(stderr.trim() || err.message));
+        } else {
+          JsonLogger.log("meta", { event: "runCliCommand-done", args, stdoutLen: stdout.length });
+          resolve(stdout.trim());
+        }
       });
     });
   }
 
   detach(): void {
     this.log("detach: releasing server without killing");
+    JsonLogger.log("meta", { event: "detach" });
     this.serverInstance = null;
     this.client = null;
     this.serverUrl = "";
@@ -727,6 +756,7 @@ export class OpenCodeCli {
   }
 
   async abort(): Promise<void> {
+    JsonLogger.log("meta", { event: "abort" });
     this.sseAbortFlag = true;
     if (this.sseIterator) {
       try {
@@ -739,6 +769,7 @@ export class OpenCodeCli {
   }
 
   async abortSession(sessionId: string): Promise<void> {
+    JsonLogger.log("meta", { event: "abortSession-start", sessionId });
     this.sseAbortFlag = true;
     if (this.sseIterator) {
       try {
@@ -751,8 +782,10 @@ export class OpenCodeCli {
     try {
       await this.client!.session.abort({ path: { id: sessionId } });
       this.log(`abortSession: aborted ${sessionId}`);
+      JsonLogger.log("meta", { event: "abortSession-done", sessionId });
     } catch (e) {
       this.log(`abortSession error: ${e}`);
+      JsonLogger.log("error", { source: "abortSession", sessionId, error: String(e) });
     }
   }
 }

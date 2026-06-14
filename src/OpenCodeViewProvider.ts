@@ -81,15 +81,15 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this.getHtml(webviewView.webview);
     this.log("resolveWebviewView() HTML set");
 
-    // Intercept postMessage to log every outgoing webview message
-    if (JsonLogger.isEnabled()) {
-      const originalPost = webviewView.webview.postMessage.bind(webviewView.webview);
-      (webviewView.webview as unknown as { postMessage: typeof originalPost }).postMessage =
-        ((msg: unknown) => {
-          try { JsonLogger.log("webview-out", msg); } catch {}
-          return originalPost(msg as Parameters<typeof originalPost>[0]);
-        }) as typeof originalPost;
-    }
+    // Intercept postMessage to log every outgoing webview message via JsonLogger.
+    // JsonLogger.log() internally no-ops when disabled, so wrapping unconditionally
+    // is safe and lets the user toggle logging without reloading the webview.
+    const originalPost = webviewView.webview.postMessage.bind(webviewView.webview);
+    (webviewView.webview as unknown as { postMessage: typeof originalPost }).postMessage =
+      ((msg: unknown) => {
+        try { JsonLogger.log("webview-out", msg); } catch {}
+        return originalPost(msg as Parameters<typeof originalPost>[0]);
+      }) as typeof originalPost;
 
     webviewView.webview.onDidReceiveMessage((msg) => {
       try { JsonLogger.log("webview-in", msg); } catch {}
