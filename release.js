@@ -1,13 +1,14 @@
 /**
  * release.js — Fully CLI-driven release script.
  *
+ * The marketplace requires strict numeric semver (e.g. 0.2.0, 1.0.0).
+ * Use "preview": true in package.json to mark pre-release versions.
+ *
  * Usage:
- *   node release.js                         # patch bump (0.1.0 -> 0.1.1)
- *   node release.js minor                   # 0.2.0
+ *   node release.js                         # patch bump (0.2.0 -> 0.2.1)
+ *   node release.js minor                   # 0.3.0
  *   node release.js major                   # 1.0.0
- *   node release.js beta                    # next beta (0.1.1-beta.1, 0.1.1-beta.2, …)
- *   node release.js 0.2.0                   # explicit version
- *   node release.js 0.2.0-beta.1            # explicit pre-release
+ *   node release.js 0.3.0                   # explicit version
  *   node release.js --dry-run               # preview only, no changes
  *   node release.js --force                 # bypass branch check
  *
@@ -22,7 +23,7 @@ const path = require("path");
 const PKG_PATH = path.join(__dirname, "package.json");
 const TAG_PREFIX = "v";
 const args = process.argv.slice(2);
-const BUMP = args.find(a => /^[\d][\d.]*(-[\w.]+)?$/u.test(a) || /^(patch|minor|major|beta)$/.test(a)) || "patch";
+const BUMP = args.find(a => /^\d+\.\d+\.\d+$/.test(a) || /^(patch|minor|major)$/.test(a)) || "patch";
 const DRY_RUN = args.includes("--dry-run");
 const FORCE = args.includes("--force");
 
@@ -61,23 +62,17 @@ function exec(cmd) {
 function resolveVersion(bump) {
   const pkg = readPkg();
   const current = pkg.version;
-  const m = current.match(/^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/);
+  const m = current.match(/^(\d+)\.(\d+)\.(\d+)$/);
 
   function core(a, b, c) { return [a, b, c].join("."); }
 
   let next;
-  if (/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(bump)) {
+  if (/^\d+\.\d+\.\d+$/.test(bump)) {
     next = bump;
   } else if (bump === "major") {
     next = core(+m[1] + 1, 0, 0);
   } else if (bump === "minor") {
     next = core(m[1], +m[2] + 1, 0);
-  } else if (bump === "beta") {
-    if (m[4]) {
-      next = core(m[1], m[2], m[3]) + "-beta." + (+m[4] + 1);
-    } else {
-      next = core(m[1], m[2], +m[3] + 1) + "-beta.1";
-    }
   } else {
     next = core(m[1], m[2], +m[3] + 1);
   }

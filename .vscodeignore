@@ -15,3 +15,4 @@ release.js
 media/icon.svg
 .vscodeignore
 logs/**
+release/**
