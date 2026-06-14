@@ -1255,7 +1255,8 @@ class App {
         const inp = (st?.input || part.input || {}) as Record<string, unknown>;
         const qArr = inp.questions as Array<Record<string, unknown>> | undefined;
         const qs = (qArr && qArr.length) ? qArr : [inp];
-        bubble.appendChild(this.renderQuestionCard(qs, true));
+        const qReadOnly = !this.state.pendingQuestion;
+        bubble.appendChild(this.renderQuestionCard(qs, qReadOnly));
       } else if ((part.type === "tool_use" || part.type === "tool-call" || part.type === "tool") && (part as any).tool === "task") {
         bubble.appendChild(this.renderTaskCard(part as Record<string, unknown>));
       } else if (part.type === "tool_use" || part.type === "tool-call") {
@@ -1321,19 +1322,23 @@ class App {
         hdr.className = "reasoning-header";
         const hdrLeft = el("div", { className: "reasoning-header-left" });
         const pTime = (part as any).time as Record<string, unknown> | undefined;
-        let durStr = "...";
-        if (pTime && typeof pTime.start === "number" && typeof pTime.end === "number") {
-          const ms = (pTime.end as number) - (pTime.start as number);
-          if (ms < 1000) durStr = Math.round(ms) + "ms";
-          else durStr = Math.round(ms / 1000) + "s";
+        const pTokens = (part as any).tokens as Record<string, unknown> | undefined;
+        let durStr = "";
+        if (pTime && typeof pTime.start === "number") {
+          const end = typeof pTime.end === "number" ? pTime.end : Date.now();
+          const ms = end - (pTime.start as number);
+          durStr = ms < 1000 ? Math.round(ms) + "ms" : Math.round(ms / 1000) + "s";
         }
-        hdrLeft.innerHTML = '<span class="icon">' + Lightbulb + '</span> <span>Reasoned for ' + durStr + '</span>';
+        let infoParts = ["Reasoned for " + (durStr || "...")];
+        if (pTokens?.input) infoParts.push("Input: " + pTokens.input + " tokens");
+        if (pTokens?.output) infoParts.push("Output: " + pTokens.output + " tokens");
+        hdrLeft.innerHTML = '<span class="icon">' + Lightbulb + '</span> <span class="reasoning-label">' + infoParts.join("  |  ") + '</span>';
         hdr.appendChild(hdrLeft);
-        const chevron = el("span", { className: "reasoning-chevron" });
+        const chevron = el("span", { className: "reasoning-chevron open" });
         chevron.innerHTML = ChevronDown;
         hdr.appendChild(chevron);
         const body = document.createElement("div");
-        body.className = "reasoning-body";
+        body.className = "reasoning-body open";
         const rt = String((part as any).text || "");
         if (rt) body.appendChild(renderMarkdown(rt));
         hdr.onclick = () => {
@@ -2391,9 +2396,29 @@ class App {
         const tokens = (info.tokens as Msg["tokens"]) || (event.tokens as Msg["tokens"]);
         const cost = (info.cost as number) || (event.cost as number) || 0;
         const id = (event.id as string) || (info.id as string) || "";
+        // If message has a question tool part, ensure pendingQuestion is set so user can interact
+        if (!this.state.pendingQuestion) {
+          const qPart = (parts || []).find((p: any) =>
+            (p.type === "tool" || p.type === "tool_use" || p.type === "tool-call") && p.tool === "question"
+          );
+          if (qPart) {
+            const inp = ((qPart as any).state?.input || (qPart as any).input || {}) as Record<string, unknown>;
+            const qArr = inp.questions as Array<Record<string, unknown>> | undefined;
+            this.state.pendingQuestion = {
+              questions: (qArr && qArr.length) ? qArr : [inp],
+              messageID: id,
+              partID: (qPart as any).id || "",
+            };
+          }
+        }
         if (text || (parts && (parts as any[]).length > 0)) {
           this.streamingSaved = true;
-          const newMsg: Msg = { role, content: text, parts, model, time, finish, mode, tokens, cost, id };
+          // Preserve streamed reasoning if the final parts don't include it
+          let finalParts = parts as Record<string, unknown>[];
+          if (this.streamingReasoning && (!finalParts || !finalParts.some(p => p.type === "reasoning"))) {
+            finalParts = [...(finalParts || []), { type: "reasoning", text: this.streamingReasoning }];
+          }
+          const newMsg: Msg = { role, content: text, parts: finalParts, model, time, finish, mode, tokens, cost, id };
           const existingIdx = id ? this.state.messages.findIndex(m => m.id === id) : -1;
           if (existingIdx >= 0) {
             this.state.messages[existingIdx] = newMsg;
