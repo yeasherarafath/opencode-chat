@@ -243,7 +243,3 @@ This extension runs the opencode CLI locally on your machine. No data is sent to
 
 MIT
 
-## Logo Credit
-
-- ChatBot icon — [freesvg.org](https://freesvg.org/1538298822)
-- OpenCode logo — [opencode.ai/brand](https://opencode.ai/brand)
