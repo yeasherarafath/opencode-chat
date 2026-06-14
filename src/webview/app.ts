@@ -851,7 +851,15 @@ class App {
     const before = val.slice(0, cursor);
     const atIdx = before.lastIndexOf("@");
     if (atIdx >= 0 && (atIdx === 0 || before[atIdx - 1] === " " || before[atIdx - 1] === "\n")) {
-      const query = before.slice(atIdx + 1).toLowerCase();
+      const after = before.slice(atIdx + 1);
+      // @-mention ends at the first whitespace; once user types a space the
+      // mention is complete and the menu must close (otherwise the rest of
+      // the sentence is sent as the search query).
+      if (/\s/.test(after)) {
+        this.hideAtMenu();
+        return;
+      }
+      const query = after.toLowerCase();
       this.atLastQuery = query;
       // schedule a server-side find for this query (debounced) — covers the
       // entire workspace recursively instead of relying on a stale snapshot.
@@ -2279,8 +2287,12 @@ class App {
             const before = val.slice(0, cursor);
             const atIdx = before.lastIndexOf("@");
             if (atIdx >= 0) {
-              const query = before.slice(atIdx + 1).toLowerCase();
-              this.renderAtMenu(query);
+              const after = before.slice(atIdx + 1);
+              if (/\s/.test(after)) {
+                this.hideAtMenu();
+              } else {
+                this.renderAtMenu(after.toLowerCase());
+              }
             }
           }
           break;
