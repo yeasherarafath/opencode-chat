@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { OpenCodeCli } from "./OpenCodeCli";
 
 export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
@@ -24,10 +25,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     try {
       const started = await this.cli.start();
       this.log(`initialize() start done, started=${started}`);
-      if (started) {
-        this.isInstalled = true;
-        try { this.opencodeVersion = await this.cli.getVersion(); } catch { this.opencodeVersion = ""; }
-      }
+      if (started) this.isInstalled = true;
     } catch (e) {
       this.log(`initialize() start threw: ${e}`);
     }
@@ -39,6 +37,9 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
       } catch (e) {
         this.log(`initialize() checkInstall threw: ${e}`);
       }
+    }
+    if (this.isInstalled) {
+      try { this.opencodeVersion = await this.cli.getVersion(); } catch { this.opencodeVersion = ""; }
     }
     this.log("initialize() calling sendInitialState");
     try {
@@ -496,12 +497,19 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   private openFile(filePath: string): void {
     try {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+      const normalized = (filePath || "").replace(/\\/g, "/").replace(/^\.\/+/, "");
+      const isWinAbs = /^[A-Za-z]:\//.test(normalized);
+      const isUnixAbs = normalized.startsWith("/");
+      const isAbsolute = isWinAbs || isUnixAbs || path.isAbsolute(filePath);
       let uri: vscode.Uri;
-      if (workspaceRoot && !filePath.startsWith("/") && !/^[A-Za-z]:\\/.test(filePath)) {
-        uri = vscode.Uri.joinPath(workspaceRoot, filePath);
+      if (isAbsolute) {
+        uri = vscode.Uri.file(filePath);
+      } else if (workspaceRoot) {
+        uri = vscode.Uri.joinPath(workspaceRoot, normalized);
       } else {
         uri = vscode.Uri.file(filePath);
       }
+      this.log(`openFile: ${filePath} -> ${uri.fsPath}`);
       vscode.commands.executeCommand("vscode.open", uri);
     } catch (e) {
       this.log(`openFile error: ${e}`);

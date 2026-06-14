@@ -393,6 +393,24 @@ body {
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
 .animate-pulse { animation: pulse 2s cubic-bezier(.4,0,.6,1) infinite; }
 
+/* ===== Session Loading ===== */
+.session-loading {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 32px 16px; margin: 16px auto;
+  max-width: 360px;
+  background: var(--surface-container-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-xl);
+  font: var(--font-body-md); color: var(--on-surface-variant);
+}
+.session-loading .spinner {
+  width: 18px; height: 18px; flex-shrink: 0;
+  border: 2px solid var(--outline-variant);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+
 /* ===== Messages ===== */
 .msg { display: flex; gap: 12px; max-width: 100%; word-wrap: break-word; animation: fadeIn .2s ease; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }

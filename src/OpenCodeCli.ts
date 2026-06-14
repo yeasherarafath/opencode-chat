@@ -316,27 +316,28 @@ export class OpenCodeCli {
   }
 
   async getVersion(): Promise<string> {
+    if (this.serverUrl) {
+      try {
+        const res = await fetch(`${this.serverUrl}/global/health`);
+        if (res.ok) {
+          const data = await res.json() as { version?: string };
+          if (data.version) return data.version;
+        }
+      } catch {
+        // fall through
+      }
+    }
     if (this.binaryPath) {
       try {
         return await new Promise<string>((resolve, reject) => {
           execFile(this.binaryPath!, ["--version"], { timeout: 5000 }, (err, stdout) => {
             if (err) reject(err);
-            else resolve(stdout.trim());
+            else resolve(stdout.trim().replace(/^v/i, ""));
           });
         });
       } catch {
-        // fall through to server check
+        // fall through
       }
-    }
-    if (!this.serverUrl) return "";
-    try {
-      const res = await fetch(`${this.serverUrl}/health`);
-      if (res.ok) {
-        const data = await res.json() as Record<string, unknown>;
-        return (data.version as string) || "";
-      }
-    } catch {
-      // fall through
     }
     return "";
   }

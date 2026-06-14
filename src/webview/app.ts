@@ -346,6 +346,7 @@ interface AppState {
   workspaceFiles: string[];
   attachedFiles: string[];
   pendingQuestion: QuestionData | null;
+  sessionLoading: boolean;
 }
 
 class App {
@@ -353,7 +354,7 @@ class App {
     isInstalled: false, opencodeVersion: "",
     sessions: [], currentSessionId: null, messages: [],
     models: [], agents: [], selectedModel: "", selectedAgent: "", selectedVariant: "",
-    isRunning: false, showSessions: true, sessionCount: 0, sessionFilter: "", workspaceFiles: [], attachedFiles: [], pendingQuestion: null,
+    isRunning: false, showSessions: true, sessionCount: 0, sessionFilter: "", workspaceFiles: [], attachedFiles: [], pendingQuestion: null, sessionLoading: false,
   };
 
   private root: HTMLElement;
@@ -1091,6 +1092,13 @@ class App {
       this.sessionsPanel.classList.add("hidden");
     }
     if (!this.state.messages.length) {
+      if (this.state.sessionLoading && this.state.currentSessionId) {
+        const card = el("div", { className: "session-loading" });
+        card.innerHTML = '<span class="spinner"></span> Loading chat...';
+        this.chatArea.appendChild(card);
+        this.chatArea.scrollTop = this.chatArea.scrollHeight;
+        return;
+      }
       this.chatArea.appendChild(el("div", { className: "empty" }, [
         txt("Start a conversation with OpenCode."),
         el("div", { className: "cmd-hint" }, [txt("Type / for commands · Ctrl+F to search · Cmd ▼ for actions")]),
@@ -1756,8 +1764,9 @@ class App {
     this.state.showSessions = false;
     this.sessionsPanel.classList.add("hidden");
     this.state.messages = [];
-    this.renderMessages();
+    this.state.sessionLoading = true;
     this.setStatus("busy", "Loading...");
+    this.renderMessages();
     vscode.postMessage({ type: "load-messages", sessionId: id });
   }
 
@@ -1766,6 +1775,7 @@ class App {
     if (!id) return;
     this.setStatus("busy", "Refreshing...");
     this.state.messages = [];
+    this.state.sessionLoading = true;
     this.renderMessages();
     vscode.postMessage({ type: "load-messages", sessionId: id });
   }
@@ -1817,6 +1827,7 @@ class App {
           break;
         case "session-loaded":
           this.state.currentSessionId = msg.sessionId as string;
+          this.state.sessionLoading = false;
           const raw = msg.messages as Record<string, unknown>[];
           this.state.messages = raw.map((m) => {
             const info = (m as any).info || {};
