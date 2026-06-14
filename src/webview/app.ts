@@ -1711,6 +1711,12 @@ class App {
               parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
             });
             this.renderMessages();
+          } else if (!this.streamingSaved) {
+            this.state.messages.push({
+              role: "assistant",
+              content: this.streamingContent || "_(no response)_",
+            });
+            this.renderMessages();
           }
           this.state.isRunning = false;
           this.streamingContent = "";

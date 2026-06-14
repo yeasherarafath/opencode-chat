@@ -539,6 +539,7 @@ export class OpenCodeCli {
 
       let hasStarted = false;
       const knownToolPartIds = new Set<string>();
+      const pendingEmptyMsgIds = new Set<string>();
 
       while (!this.sseAbortFlag) {
         let result: IteratorResult<unknown>;
@@ -611,7 +612,12 @@ export class OpenCodeCli {
                 this.log(`message.updated: fetch msg ${msgId} failed: ${e}`);
               }
             }
-            onEvent({ type: "message", info, role: "assistant", parts: mparts, content: mcontent });
+            if (mcontent || mparts.length) {
+              onEvent({ type: "message", info, role: "assistant", parts: mparts, content: mcontent });
+            } else {
+              pendingEmptyMsgIds.add(msgId);
+              this.log(`message.updated ${msgId}: deferred (empty content, ${mparts.length} parts)`);
+            }
           }
           continue;
         } else if (etype === "session.status") {
@@ -622,6 +628,31 @@ export class OpenCodeCli {
         } else if (etype === "message.removed" || etype === "session.error") {
           onEvent({ type: "error", message: (props.message as string) || "Session error" });
           break;
+        }
+      }
+
+      // Retry fetching pending empty messages (server may populate them after idle)
+      if (pendingEmptyMsgIds.size > 0) {
+        this.log(`SSE loop done, retrying ${pendingEmptyMsgIds.size} pending empty messages...`);
+        for (const msgId of pendingEmptyMsgIds) {
+          for (let retry = 0; retry < 3; retry++) {
+            try {
+              await new Promise(r => setTimeout(r, 200));
+              const msgResult = await this.client!.session.message({ path: { id: sessionId, messageID: msgId } });
+              const msgData = msgResult.data as Record<string, unknown> | undefined;
+              if (msgData) {
+                const content = (msgData.content as string) || (msgData.text as string) || "";
+                const parts = (msgData.parts as unknown[]) || [];
+                if (content || parts.length) {
+                  onEvent({ type: "message", info: msgData, role: "assistant", parts, content });
+                  this.log(`message.updated ${msgId}: retry succeeded (content=${content.length}, parts=${parts.length})`);
+                  break;
+                }
+              }
+            } catch (e) {
+              this.log(`message.updated ${msgId}: retry ${retry + 1} failed: ${e}`);
+            }
+          }
         }
       }
 
