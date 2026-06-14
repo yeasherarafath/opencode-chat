@@ -621,6 +621,7 @@ export class OpenCodeCli {
 
       let hasStarted = false;
       const knownToolPartIds = new Set<string>();
+      const textPartsSeenDelta = new Set<string>();
       const pendingEmptyMsgIds = new Set<string>();
       const lastMessageSig = new Map<string, string>();
 
@@ -662,12 +663,12 @@ export class OpenCodeCli {
           const part = props.part as Record<string, unknown> | undefined;
           const delta = props.delta as string | undefined;
           const ptype = part?.type as string;
+          const partId = part?.id as string;
 
           if (ptype === "tool") {
             const state = part?.state as Record<string, unknown> | undefined;
             const toolName = part?.tool as string;
             const st = state?.status as string;
-            const partId = part?.id as string;
             if ((st === "running" || st === "pending") && partId && !knownToolPartIds.has(partId)) {
               knownToolPartIds.add(partId);
               emit({ type: "tool-start", name: toolName, input: state?.input || {}, id: partId });
@@ -681,16 +682,52 @@ export class OpenCodeCli {
           } else if (ptype === "reasoning") {
             if (delta) {
               emit({ type: "reasoning", text: delta });
-            } else {
-              JsonLogger.log("sse-part-no-delta", { ptype, part });
             }
+            // text-only reasoning update without delta = full state snapshot; ignore (deltas already cover live render)
+          } else if (ptype === "text") {
+            // text part lifecycle:
+            //   1. created with empty text + time.start  → scaffold (silent)
+            //   2. delta arrives via this updated event  → stream
+            //   3. final snapshot with text + time.end   → ignore (deltas already covered it)
+            // We never need raw-part for text — it's covered by deltas.
+            const text = (part as any)?.text as string | undefined;
+            const time = (part as any)?.time as { start?: number; end?: number } | undefined;
+            if (delta) {
+              emit({ type: "text", content: delta });
+            } else if (text && time?.end && partId) {
+              // final text snapshot; track so we can emit if no deltas were seen
+              if (!textPartsSeenDelta.has(partId)) {
+                emit({ type: "text", content: text });
+                textPartsSeenDelta.add(partId);
+              }
+            }
+            // empty scaffold = no-op
           } else if (ptype === "step-start" || ptype === "step-finish" || ptype === "snapshot" || ptype === "patch" || ptype === "file" || ptype === "agent" || ptype === "retry" || ptype === "compaction") {
             emit({ type: ptype, part });
           } else if (delta) {
+            // unknown ptype but has a delta payload — forward as text best-effort
             emit({ type: "text", content: delta });
           } else {
             JsonLogger.log("sse-part-unhandled", { ptype, part, props });
             emit({ type: "raw-part", ptype, part: part as any });
+          }
+        } else if (etype === "message.part.delta") {
+          // dedicated streaming delta channel — the server emits these for text /
+          // reasoning incrementally. Without handling them we drop the live stream.
+          hasStarted = true;
+          const field = props.field as string;
+          const delta = props.delta as string;
+          const partId = props.partID as string;
+          if (delta) {
+            if (field === "text") {
+              if (partId) textPartsSeenDelta.add(partId);
+              emit({ type: "text", content: delta });
+            } else if (field === "reasoning") {
+              emit({ type: "reasoning", text: delta });
+            } else {
+              JsonLogger.log("sse-part-unhandled", { source: "message.part.delta", field, props });
+              emit({ type: "text", content: delta });
+            }
           }
         } else if (etype === "message.updated") {
           hasStarted = true;
@@ -738,6 +775,21 @@ export class OpenCodeCli {
         } else if (etype === "message.removed" || etype === "session.error") {
           emit({ type: "error", message: (props.message as string) || "Session error" });
           break;
+        } else if (
+          etype === "server.heartbeat"
+          || etype === "server.connected"
+          || etype === "session.next.agent.switched"
+          || etype === "session.updated"
+          || etype === "session.diff"
+          || etype === "installation.updated"
+          || etype === "permission.updated"
+          || etype === "permission.replied"
+          || etype === "lsp.client.diagnostics"
+          || etype === "ide.installed"
+          || etype === "file.edited"
+        ) {
+          // benign signals — log but never forward to webview as raw-event (avoids UI noise)
+          JsonLogger.log("sse-ignored", { etype, properties: props });
         } else {
           JsonLogger.log("sse-unhandled-event", { etype, properties: props });
           emit({ type: "raw-event", etype, properties: props as any });

@@ -5,6 +5,7 @@ import type { OutputChannel } from "vscode";
 type Category =
   | "sse-event"
   | "sse-skipped"
+  | "sse-ignored"
   | "sse-foreign-session"
   | "sse-session-status"
   | "sse-unhandled-event"
