@@ -44,7 +44,7 @@ A full-featured chat UI for [OpenCode](https://opencode.ai) — the AI coding ag
 ### Display & UI
 - **Markdown Rendering** — Full markdown including tables, lists, headings, code blocks, links, images, and formatting
 - **Code Highlighting** — Built-in syntax highlighting for 40+ languages with copy-to-clipboard
-- **Thinking/Reasoning** — Visual spinner indicator during model reasoning with smooth transitions to final output
+- **Thinking/Reasoning** — Real-time reasoning display that shows the model's chain-of-thought as it happens, giving you visibility into how the AI arrives at its answers for better understanding
 - **Inline Tool Status** — Task cards showing running and completed tool calls inline
 - **Token & Cost Tracking** — Token usage and cost per message, displayed in the status bar
 - **File Display** — Inline file content rendering with language labels
