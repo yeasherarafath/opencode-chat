@@ -42,12 +42,6 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     if (this.isInstalled) {
       try {
         this.opencodeVersion = await this.cli.getVersion();
-        if (!this.opencodeVersion) {
-          const ext = vscode.extensions.getExtension("yeasherarafath.opencode-chat");
-          if (ext?.packageJSON?.version) {
-            this.opencodeVersion = String(ext.packageJSON.version).replace(/^v/i, "");
-          }
-        }
       } catch {
         this.opencodeVersion = "";
       }

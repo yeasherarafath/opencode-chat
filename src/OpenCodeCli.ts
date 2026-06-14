@@ -183,7 +183,7 @@ export class OpenCodeCli {
     for (const bin of candidates) {
       try {
         await new Promise<void>((resolve, reject) => {
-          execFile(bin, ["--version"], { timeout: 3000 }, (err) => {
+          execFile(bin, ["--v"], { timeout: 3000 }, (err) => {
             if (err) reject(err);
             else resolve();
           });
@@ -368,6 +368,7 @@ export class OpenCodeCli {
   }
 
   async getVersion(): Promise<string> {
+    // 1. Try server health endpoints (most reliable when server is running)
     if (this.serverUrl) {
       try {
         const res = await fetch(`${this.serverUrl}/global/health`);
@@ -388,10 +389,31 @@ export class OpenCodeCli {
         this.log("getVersion: fallback health fetch failed");
       }
     }
-    if (this.binaryPath) {
+
+    // 2. Try SDK client base URL health endpoint (covers cases where serverUrl differs from client baseUrl)
+    if (this.client && !this.serverUrl) {
+      try {
+        const baseUrl = (this.client as any).baseUrl || this.serverUrl;
+        if (baseUrl) {
+          const res = await fetch(`${baseUrl}/health`);
+          if (res.ok) {
+            const data = await res.json() as { version?: string };
+            if (data.version) return data.version.replace(/^v/i, "").replace(/^opencode[\/\s]/i, "");
+          }
+        }
+      } catch {
+        this.log("getVersion: SDK client health fetch failed");
+      }
+    }
+
+    // 3. Resolve and run binary --v
+    const binPath = this.binaryPath !== "opencode"
+      ? this.binaryPath
+      : await this.resolveBinary().catch(() => null);
+    if (binPath) {
       try {
         const version = await new Promise<string>((resolve, reject) => {
-          execFile(this.binaryPath!, ["--version"], { timeout: 5000 }, (err, stdout) => {
+          execFile(binPath, ["--v"], { timeout: 5000 }, (err, stdout) => {
             if (err) reject(err);
             else resolve(stdout.trim().replace(/^v/i, "").replace(/^opencode[\/\s]/i, ""));
           });
@@ -399,9 +421,10 @@ export class OpenCodeCli {
         this.log(`getVersion: from binary = "${version}"`);
         return version;
       } catch {
-        this.log("getVersion: binary --version failed");
+        this.log("getVersion: binary --v failed");
       }
     }
+
     this.log("getVersion: all methods failed, returning empty");
     return "";
   }
