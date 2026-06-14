@@ -11,6 +11,7 @@ import {
   RotateCcw, Settings, Share2, Square, Trash2, User, Video, Wrench, X,
   XCircle,
 } from "lucide-static";
+import { marked } from "marked";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, a?: Record<string, string>, c?: (HTMLElement | Text)[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -160,162 +161,69 @@ function renderThinkBlock(content: string): HTMLElement {
 
 function renderMarkdown(text: string): HTMLElement {
   const root = el("div", { className: "md" });
-  // Split into code blocks and non-code sections.
-  // Capturing parens keep delimiters in result array.
-  const parts = text.split(/(```[\s\S]*?```)/);
-  for (const part of parts) {
-    if (!part.trim()) continue;
-    const codeMatch = part.match(/^```(\w*)\n?([\s\S]*?)```\n?$/);
-    if (codeMatch) {
-      const lang = codeMatch[1];
-      const code = codeMatch[2].replace(/\n$/, "");
-      const pre = el("pre", { className: "code-block" });
-      const hdr = el("div", { className: "code-header" });
-      hdr.appendChild(el("span", { className: "code-lang" }, [txt(lang || "code")]));
-      const copyBtn = el("button", { className: "copy-btn" }, [txt("Copy")]);
-      copyBtn.onclick = () => {
-        navigator.clipboard.writeText(code).then(() => {
-          copyBtn.textContent = "Copied!";
-          setTimeout(() => { copyBtn.textContent = "Copy"; }, 2000);
-        }).catch(() => {});
-      };
-      hdr.appendChild(copyBtn);
-      pre.appendChild(hdr);
-      const codeEl = el("code");
-      codeEl.innerHTML = highlightCode(code, lang);
-      pre.appendChild(codeEl);
-      root.appendChild(pre);
-    } else {
-      // Process non-code text: find <think>...</think> blocks on their own lines
-      let remaining = part;
-      while (remaining.length) {
-        const thinkMatch = remaining.match(/(?:^|\n)\s*<think>([\s\S]*?)<\/think>\s*(?:\n|$)/);
-        if (!thinkMatch || thinkMatch.index === undefined) {
-          renderInline(remaining, root);
-          break;
-        }
-        const before = remaining.slice(0, thinkMatch.index);
-        if (before.trim()) renderInline(before, root);
-        root.appendChild(renderThinkBlock(thinkMatch[1]));
-        remaining = remaining.slice(thinkMatch.index + thinkMatch[0].length);
-      }
+
+  // Extract <think> blocks on their own lines, replace with placeholders
+  const thinkBlocks: string[] = [];
+  const cleanText = text.replace(/(?:^|\n)\s*<think>([\s\S]*?)<\/think>\s*(?:\n|$)/g, (_, content) => {
+    const idx = thinkBlocks.length;
+    thinkBlocks.push(content);
+    return "\n\x00THINK" + idx + "\x00\n";
+  });
+
+  // Parse markdown to HTML using marked
+  const html = marked.parse(cleanText, { breaks: true, gfm: true });
+
+  // Convert HTML string to DOM nodes
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = html;
+
+  // Enhance code blocks with copy buttons and syntax highlighting
+  wrapper.querySelectorAll("pre > code").forEach((codeEl) => {
+    const pre = codeEl.parentElement!;
+    const codeText = codeEl.textContent || "";
+    const cls = codeEl.className || "";
+    const lang = cls.replace(/^language-/, "");
+    const header = el("div", { className: "code-header" });
+    header.appendChild(el("span", { className: "code-lang" }, [txt(lang || "code")]));
+    const copyBtn = el("button", { className: "copy-btn" }, [txt("Copy")]);
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(codeText).then(() => {
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => { copyBtn.textContent = "Copy"; }, 2000);
+      }).catch(() => {});
+    };
+    header.appendChild(copyBtn);
+    pre.insertBefore(header, codeEl);
+    pre.className = "code-block";
+    codeEl.innerHTML = highlightCode(codeText, lang);
+  });
+
+  // Replace think block placeholders with actual DOM elements
+  walkTextNodes(wrapper, (node) => {
+    const match = node.textContent?.match(/\x00THINK(\d+)\x00/);
+    if (match) {
+      const parts = node.textContent!.split(/\x00THINK\d+\x00/);
+      const fragment = document.createDocumentFragment();
+      if (parts[0]) fragment.appendChild(document.createTextNode(parts[0]));
+      fragment.appendChild(renderThinkBlock(thinkBlocks[parseInt(match[1])]));
+      if (parts[1]) fragment.appendChild(document.createTextNode(parts[1]));
+      node.parentNode!.replaceChild(fragment, node);
     }
+  });
+
+  // Move all children to root
+  while (wrapper.firstChild) {
+    root.appendChild(wrapper.firstChild);
   }
   return root;
 }
 
-function renderInline(text: string, root: HTMLElement): void {
-  const lines = text.split("\n");
-  let p: HTMLElement | null = null;
-  let inUl: HTMLElement | null = null;
-  let inOl: HTMLElement | null = null;
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    const html = line
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-
-    // ---- Table ----
-    if (line.startsWith("|") && i + 1 < lines.length && /^[\s|:-]+$/.test(lines[i + 1]) && lines[i + 1].includes("---")) {
-      const tableRows: string[] = [];
-      while (i < lines.length && lines[i].trim().startsWith("|")) {
-        tableRows.push(lines[i]);
-        i++;
-      }
-      if (tableRows.length >= 2) {
-        const table = el("table", { className: "md-table" });
-        p = null; inUl = null; inOl = null;
-        // header row
-        const thead = el("thead");
-        const trH = el("tr");
-        for (const cell of splitTableRow(tableRows[0])) {
-          trH.appendChild(el("th", {}, [txt(inlineFormat(cell.trim()))]));
-        }
-        thead.appendChild(trH);
-        table.appendChild(thead);
-        // data rows (skip separator at index 1)
-        if (tableRows.length > 2) {
-          const tbody = el("tbody");
-          for (let r = 2; r < tableRows.length; r++) {
-            const trD = el("tr");
-            for (const cell of splitTableRow(tableRows[r])) {
-              trD.appendChild(el("td", {}, [txt(inlineFormat(cell.trim()))]));
-            }
-            tbody.appendChild(trD);
-          }
-          table.appendChild(tbody);
-        }
-        root.appendChild(table);
-      }
-      continue;
-    }
-
-    if (/^-{3,}\s*$/.test(line)) {
-      p = null; inUl = null; inOl = null;
-      root.appendChild(el("hr"));
-      i++; continue;
-    }
-    const hMatch = line.match(/^(#{1,6})\s+(.+)$/);
-    if (hMatch) {
-      const level = hMatch[1].length;
-      const tag = "h" + Math.min(level, 6);
-      p = null; inUl = null; inOl = null;
-      const el2 = document.createElement(tag);
-      el2.innerHTML = inlineFormat(hMatch[2]);
-      root.appendChild(el2);
-      i++; continue;
-    }
-    if (/^(-|\*)\s+(.+)$/.test(line)) {
-      if (!inUl) { inUl = el("ul"); root.appendChild(inUl); }
-      p = null; inOl = null;
-      const li = el("li");
-      li.innerHTML = inlineFormat(line.replace(/^(-|\*)\s+/, ""));
-      inUl.appendChild(li);
-      i++; continue;
-    }
-    if (/^\d+\.\s+(.+)$/.test(line)) {
-      if (!inOl) { inOl = el("ol"); root.appendChild(inOl); }
-      p = null; inUl = null;
-      const li = el("li");
-      li.innerHTML = inlineFormat(line.replace(/^\d+\.\s+/, ""));
-      inOl.appendChild(li);
-      i++; continue;
-    }
-    if (line === "") {
-      p = null; inUl = null; inOl = null; i++; continue;
-    }
-    inUl = null; inOl = null;
-    if (!p) { p = el("p"); root.appendChild(p); }
-    if (p.innerHTML) p.innerHTML += "<br>" + html;
-    else p.innerHTML = html;
-    i++;
+function walkTextNodes(root: Node, fn: (node: Text) => void): void {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let node: Text | null;
+  while ((node = walker.nextNode() as Text | null)) {
+    fn(node);
   }
-}
-
-function splitTableRow(row: string): string[] {
-  const parts: string[] = [];
-  let cur = "";
-  for (let j = 0; j < row.length; j++) {
-    if (row[j] === "|") {
-      parts.push(cur);
-      cur = "";
-    } else {
-      cur += row[j];
-    }
-  }
-  // Drop leading empty (before first |) and trailing empty (after last |)
-  return parts.slice(1).filter(c => c.trim() !== "");
-}
-
-function inlineFormat(s: string): string {
-  return s
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 }
 
 const SLASH_CMDS = [
