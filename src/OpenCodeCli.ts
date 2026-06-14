@@ -4,6 +4,7 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import spawn_ from "cross-spawn";
+import { JsonLogger } from "./JsonLogger";
 const spawn: (cmd: string, args: string[], opts?: any) => any = spawn_ as any;
 
 interface Session {
@@ -484,6 +485,23 @@ export class OpenCodeCli {
     this.sseAbortFlag = false;
     this.sseIterator = null;
     let knownMessageIds = new Set<string>();
+    const emit = (ev: CliEvent) => {
+      try { JsonLogger.log("cli-event", ev); } catch {}
+      onEvent(ev);
+    };
+
+    JsonLogger.log("meta", {
+      event: "runPrompt-start",
+      promptPreview: prompt.slice(0, 200),
+      promptLen: prompt.length,
+      options: {
+        sessionId: options.sessionId,
+        model: options.model,
+        agent: options.agent,
+        variant: options.variant,
+        fileCount: options.files?.length || 0,
+      },
+    });
 
     try {
       let sessionId = options.sessionId;
@@ -493,7 +511,7 @@ export class OpenCodeCli {
           body: { title: prompt.slice(0, 80) },
         });
         sessionId = createResult.data!.id;
-        onEvent({ type: "sessionID", sessionID: sessionId });
+        emit({ type: "sessionID", sessionID: sessionId });
       }
 
       let model: { providerID: string; modelID: string } | undefined;
@@ -558,6 +576,8 @@ export class OpenCodeCli {
         const event = result.value as Record<string, unknown>;
         const props = (event.properties || {}) as Record<string, unknown>;
 
+        JsonLogger.log("sse-event", { etype: event.type, properties: props });
+
         const eventSessionId: string | undefined =
           (props.part as Record<string, unknown>)?.sessionID as string ||
           (props.info as Record<string, unknown>)?.sessionID as string ||
@@ -582,18 +602,18 @@ export class OpenCodeCli {
             const partId = part?.id as string;
             if ((st === "running" || st === "pending") && partId && !knownToolPartIds.has(partId)) {
               knownToolPartIds.add(partId);
-              onEvent({ type: "tool-start", name: toolName, input: state?.input || {}, id: partId });
+              emit({ type: "tool-start", name: toolName, input: state?.input || {}, id: partId });
             } else if (st === "completed") {
-              onEvent({ type: "tool-result", name: toolName, output: state?.output as string, content: state?.output as string, id: part?.id as string });
+              emit({ type: "tool-result", name: toolName, output: state?.output as string, content: state?.output as string, id: part?.id as string });
             } else if (st === "error") {
-              onEvent({ type: "tool-result", name: toolName, output: state?.error as string, content: state?.error as string, id: part?.id as string });
+              emit({ type: "tool-result", name: toolName, output: state?.error as string, content: state?.error as string, id: part?.id as string });
             }
           } else if (ptype === "reasoning" && delta) {
-            onEvent({ type: "reasoning", text: delta });
+            emit({ type: "reasoning", text: delta });
           } else if (ptype === "step-start" || ptype === "step-finish" || ptype === "snapshot" || ptype === "patch" || ptype === "file" || ptype === "agent" || ptype === "retry" || ptype === "compaction") {
-            onEvent({ type: ptype, part });
+            emit({ type: ptype, part });
           } else if (delta) {
-            onEvent({ type: "text", content: delta });
+            emit({ type: "text", content: delta });
           }
         } else if (etype === "message.updated") {
           hasStarted = true;
@@ -612,6 +632,7 @@ export class OpenCodeCli {
               }
             } catch (e) {
               this.log(`message.updated: fetch msg ${msgId} failed: ${e}`);
+              JsonLogger.log("error", { source: "message.updated.fetch", msgId, error: String(e) });
             }
             const sig = `${mcontent.length}:${mparts.length}`;
             const prevSig = lastMessageSig.get(msgId);
@@ -619,7 +640,7 @@ export class OpenCodeCli {
               if (prevSig !== sig) {
                 lastMessageSig.set(msgId, sig);
                 knownMessageIds.add(msgId);
-                onEvent({ type: "message", info, role: "assistant", parts: mparts, content: mcontent, id: msgId });
+                emit({ type: "message", info, role: "assistant", parts: mparts, content: mcontent, id: msgId });
               }
             } else if (!knownMessageIds.has(msgId)) {
               pendingEmptyMsgIds.add(msgId);
@@ -633,7 +654,7 @@ export class OpenCodeCli {
             break;
           }
         } else if (etype === "message.removed" || etype === "session.error") {
-          onEvent({ type: "error", message: (props.message as string) || "Session error" });
+          emit({ type: "error", message: (props.message as string) || "Session error" });
           break;
         }
       }
@@ -655,7 +676,7 @@ export class OpenCodeCli {
                 const sig = `${content.length}:${parts.length}`;
                 if ((content || parts.length) && lastMessageSig.get(msgId) !== sig) {
                   lastMessageSig.set(msgId, sig);
-                  onEvent({ type: "message", info: msgData, role: "assistant", parts, content, id: msgId });
+                  emit({ type: "message", info: msgData, role: "assistant", parts, content, id: msgId });
                   this.log(`message ${msgId}: final fetch emitted (content=${content.length}, parts=${parts.length})`);
                   break;
                 }
@@ -663,15 +684,19 @@ export class OpenCodeCli {
               }
             } catch (e) {
               this.log(`message ${msgId}: final fetch retry ${retry + 1} failed: ${e}`);
+              JsonLogger.log("error", { source: "final-fetch", msgId, retry, error: String(e) });
             }
           }
         }
       }
 
+      JsonLogger.log("meta", { event: "runPrompt-exit", code: 0 });
       onExit(0);
     } catch (e) {
       this.log(`runPrompt error: ${e}`);
+      JsonLogger.log("error", { source: "runPrompt", error: String(e), stack: (e as Error)?.stack });
       onError(e instanceof Error ? e : new Error(String(e)));
+      JsonLogger.log("meta", { event: "runPrompt-exit", code: 1 });
       onExit(1);
     } finally {
       this.sseIterator = null;

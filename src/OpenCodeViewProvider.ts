@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { OpenCodeCli } from "./OpenCodeCli";
+import { JsonLogger } from "./JsonLogger";
 
 export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   static readonly viewType = "opencode-chat.chatView";
@@ -80,7 +81,18 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this.getHtml(webviewView.webview);
     this.log("resolveWebviewView() HTML set");
 
+    // Intercept postMessage to log every outgoing webview message
+    if (JsonLogger.isEnabled()) {
+      const originalPost = webviewView.webview.postMessage.bind(webviewView.webview);
+      (webviewView.webview as unknown as { postMessage: typeof originalPost }).postMessage =
+        ((msg: unknown) => {
+          try { JsonLogger.log("webview-out", msg); } catch {}
+          return originalPost(msg as Parameters<typeof originalPost>[0]);
+        }) as typeof originalPost;
+    }
+
     webviewView.webview.onDidReceiveMessage((msg) => {
+      try { JsonLogger.log("webview-in", msg); } catch {}
       this.log(`onDidReceiveMessage: type=${msg.type}`);
       this.handleMessage(msg).catch((e) => this.log(`handleMessage error: ${e}`));
     });

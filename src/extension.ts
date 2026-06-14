@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { OpenCodeCli } from "./OpenCodeCli";
 import { OpenCodeViewProvider } from "./OpenCodeViewProvider";
+import { JsonLogger } from "./JsonLogger";
 
 let outputChannel: vscode.OutputChannel;
 let cli: OpenCodeCli;
@@ -30,6 +32,32 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const pureMode = cfg.get<boolean>("pureMode", false);
   cli.setPureMode(pureMode);
+
+  // ----- JsonLogger setup (beta-mode debug capture) -----
+  try {
+    const pkg = (context.extension.packageJSON || {}) as { preview?: boolean; version?: string };
+    const betaAuto = pkg.preview === true || /(?:beta|alpha|rc)/i.test(String(pkg.version || ""));
+    const inspected = cfg.inspect<boolean | null>("enableJsonLogs");
+    const explicit =
+      (inspected?.workspaceFolderValue ?? inspected?.workspaceValue ?? inspected?.globalValue) as
+        | boolean
+        | null
+        | undefined;
+    const enabled = explicit === null || explicit === undefined ? betaAuto : !!explicit;
+    let dir = cfg.get<string>("jsonLogsPath") || "";
+    if (!dir) {
+      if (workspaceRoot) dir = path.join(workspaceRoot, "logs", "opencode-chat");
+      else dir = path.join(context.globalStorageUri.fsPath, "logs");
+    } else if (!path.isAbsolute(dir) && workspaceRoot) {
+      dir = path.join(workspaceRoot, dir);
+    }
+    JsonLogger.init({ enabled, dir, outputChannel });
+    outputChannel.appendLine(
+      `[OpenCode Chat] JsonLogger enabled=${enabled} (betaAuto=${betaAuto}, explicit=${String(explicit)}) dir=${dir}`
+    );
+  } catch (e) {
+    outputChannel.appendLine(`[OpenCode Chat] JsonLogger init error: ${e}`);
+  }
 
   const provider = new OpenCodeViewProvider(context.extensionUri, cli);
 
@@ -67,6 +95,8 @@ export function deactivate() {
   const cfg = vscode.workspace.getConfiguration("opencode-chat");
   const cleanup = cfg.get<boolean>("cleanupOnDeactivate", true);
   if (outputChannel) outputChannel.appendLine(`[OpenCode Chat] Deactivating - stopping server (cleanup=${cleanup})`);
+  try { JsonLogger.flush(); } catch {}
+  try { JsonLogger.dispose(); } catch {}
   if (cli) {
     if (cleanup) {
       cli.stop();

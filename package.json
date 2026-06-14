@@ -95,6 +95,19 @@
           "type": "boolean",
           "default": true,
           "description": "Kill the opencode server process tree when VS Code closes or the extension deactivates. Prevents orphaned processes."
+        },
+        "opencode-chat.enableJsonLogs": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null,
+          "description": "Write raw SSE events, dispatched cli events, and webview messages as NDJSON for debugging. Leave as null to auto-enable in beta/preview builds; set to true/false to override."
+        },
+        "opencode-chat.jsonLogsPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override directory for JSON debug logs. Leave empty to use <workspace>/logs/opencode-chat (or extension globalStorage if no workspace)."
         }
       }
     },

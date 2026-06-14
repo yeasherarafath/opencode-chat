@@ -7,5 +7,6 @@ release/
 Thumbs.db
 design/
 media/icon.png
+logs/
 # Windows reserved device name (created by opencode CLI in MSYS2)
 nul
