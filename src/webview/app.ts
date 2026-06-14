@@ -315,7 +315,14 @@ interface QuestionData {
   partID?: string;
 }
 
-interface Msg { role: string; content: string; parts?: unknown[]; model?: string; time?: number; id?: string }
+interface Msg {
+  role: string; content: string; parts?: unknown[]; model?: string; time?: number; id?: string;
+  finish?: string; mode?: string; parentID?: string;
+  path?: { cwd: string; root: string };
+  tokens?: { total: number; input: number; output: number; reasoning: number; cache: { read: number; write: number } };
+  cost?: number; error?: Record<string, unknown>; timeCompleted?: number;
+  agent?: string; summary?: { title?: string; body?: string; diffs?: FileDiff[] };
+}
 interface FileDiff { file: string; before: string; after: string; additions: number; deletions: number }
 interface ProviderInfo { id: string; name: string; key?: string; modelCount: number }
 
@@ -1081,11 +1088,12 @@ class App {
       ]));
       return;
     }
-    for (const msg of this.state.messages) this.appendMessageDOM(msg.role, msg.content, msg.parts, msg.model, msg.time, msg.id);
+    for (const msg of this.state.messages) this.appendMessageDOM(msg);
     this.chatArea.scrollTop = this.chatArea.scrollHeight;
   }
 
-  private appendMessageDOM(role: string, content: string, parts?: unknown[], model?: string, time?: number, msgId?: string): void {
+  private appendMessageDOM(msg: Msg): void {
+    const { role, content, parts, model, time, id: msgId, finish, mode, tokens: msgTokens, cost, error, timeCompleted, agent, summary, path } = msg;
     if (!content && (!parts || !parts.length)) return;
     const div = el("div", { className: "msg " + role + " group" });
 
@@ -1100,13 +1108,21 @@ class App {
     const bubbleWrap = el("div", { className: "bubble-wrap" });
     const bubble = el("div", { className: "bubble" });
 
-    // role label
+    // role label — enhanced with mode/agent/finish/tokens
     const labelEl = el("div", { className: "role-label" });
     if (role === "user") {
-      labelEl.innerHTML = "<span class='name'>You</span>";
+      let userInfo = "<span class='name'>You</span>";
+      const extra: string[] = [];
+      if (agent) extra.push(agent);
+      if (extra.length) userInfo += " <span class='time'>\u00B7 " + extra.join(" ") + "</span>";
+      labelEl.innerHTML = userInfo;
     } else {
       const name = model || "OpenCode";
-      const ts = time ? " <span class='time'>\u00B7 " + fmtTime(time) + "</span>" : "";
+      const parts: string[] = [];
+      if (time) parts.push(fmtTime(time));
+      if (mode) parts.push(mode);
+      if (finish && finish !== "stop" && finish !== "tool-calls") parts.push("finish: " + finish);
+      const ts = parts.length ? " <span class='time'>\u00B7 " + parts.join(" \u00B7 ") + "</span>" : "";
       labelEl.innerHTML = "<span class='name'>" + name + "</span>" + ts;
     }
     bubble.appendChild(labelEl);
@@ -1133,10 +1149,53 @@ class App {
       } else if ((part.type === "tool_use" || part.type === "tool-call" || part.type === "tool") && (part as any).tool === "task") {
         bubble.appendChild(this.renderTaskCard(part as Record<string, unknown>));
       } else if (part.type === "tool_use" || part.type === "tool-call") {
-        const tc = el("div", { className: "tool-call" });
-        const name = (part as any).name || (part as any).tool || "unknown";
-        tc.appendChild(el("div", { className: "tool-name" }, [txt("\u2699 Tool: " + name)]));
-        tc.appendChild(el("div", { className: "tool-input" }, [txt(JSON.stringify((part as any).input || (part as any).arguments || {}, null, 2))]));
+        // Enhanced tool call with state awareness
+        const st = (part as any).state as Record<string, unknown> | undefined;
+        const toolName = (part as any).name || (part as any).tool || "unknown";
+        const callID = (part as any).callID || "";
+        const stStatus = st?.status as string || "";
+        const stTime = st?.time as Record<string, unknown> | undefined;
+        let durStr = "";
+        if (stTime && typeof stTime.start === "number") {
+          const end = typeof stTime.end === "number" ? stTime.end : Date.now();
+          const ms = end - (stTime.start as number);
+          durStr = ms < 1000 ? Math.round(ms) + "ms" : Math.round(ms / 1000) + "s";
+        }
+
+        let icon = "\u2699";
+        let statusClass = "";
+        if (stStatus === "running") { icon = "\u23F3"; statusClass = " running"; }
+        else if (stStatus === "completed") { icon = "\u2705"; statusClass = " done"; }
+        else if (stStatus === "error") { icon = "\u274C"; statusClass = " error"; }
+
+        const tc = el("div", { className: "tool-call" + statusClass });
+        const nameLine = el("div", { className: "tool-name" });
+        nameLine.innerHTML = icon + " Tool: " + toolName + (durStr ? " \u00B7 " + durStr : "") + (callID ? " \u00B7 " + callID.slice(0, 12) : "");
+        tc.appendChild(nameLine);
+
+        // collapsible input/output
+        const details = el("div", { className: "tool-details hidden" });
+        if ((part as any).input || (part as any).arguments) {
+          details.appendChild(el("div", { className: "tool-detail-label" }, [txt("Input:")]));
+          details.appendChild(el("div", { className: "tool-input" }, [txt(JSON.stringify((part as any).input || (part as any).arguments || {}, null, 2))]));
+        }
+        if (st?.output || st?.error) {
+          const outText = (st?.output as string) || (st?.error as string) || "";
+          if (stStatus === "error") details.appendChild(el("div", { className: "tool-detail-label" }, [txt("\u26A0 Error:")]));
+          else details.appendChild(el("div", { className: "tool-detail-label" }, [txt("Output:")]));
+          details.appendChild(el("div", { className: "tool-result-content" }, [txt(outText.length > 500 ? outText.slice(0, 500) + "..." : outText)]));
+        }
+        // metadata if present
+        const meta = (st?.metadata || (part as any).metadata) as Record<string, unknown> | undefined;
+        if (meta && Object.keys(meta).length) {
+          details.appendChild(el("div", { className: "tool-detail-label" }, [txt("Metadata:")]));
+          details.appendChild(el("div", { className: "tool-input" }, [txt(JSON.stringify(meta, null, 2))]));
+        }
+        if (details.children.length) {
+          nameLine.onclick = () => { details.classList.toggle("hidden"); };
+          nameLine.style.cursor = "pointer";
+          tc.appendChild(details);
+        }
         bubble.appendChild(tc);
       }
       if (part.type === "tool_result" || part.type === "tool-result") {
@@ -1173,16 +1232,94 @@ class App {
         rc.append(hdr, body);
         bubble.appendChild(rc);
       }
+      if (part.type === "step-start") {
+        const snap = (part as any).snapshot as string | undefined;
+        const el_ = el("div", { className: "step-start" });
+        el_.textContent = "\u25B7 Step started" + (snap ? " \u00B7 snapshot " + snap.slice(0, 8) : "");
+        bubble.appendChild(el_);
+      }
       if (part.type === "step-finish") {
         const sf = el("div", { className: "step-finish" });
         const reason = (part as any).reason || "stop";
         const tokens = (part as any).tokens as Record<string, unknown> | undefined;
-        const cost = (part as any).cost as number | undefined;
+        const costV = (part as any).cost as number | undefined;
         let info = "Step finished: " + reason;
         if (tokens) info += " \u00B7 " + ((tokens as any).total || 0) + " tokens";
-        if (cost) info += " \u00B7 $" + cost;
+        if (costV) info += " \u00B7 $" + costV;
         sf.textContent = info;
         bubble.appendChild(sf);
+      }
+      if (part.type === "patch") {
+        const hash = (part as any).hash as string;
+        const files = (part as any).files as string[] | undefined;
+        const pc = el("div", { className: "patch" });
+        const hdr = el("div", { className: "patch-header" });
+        const fileCount = files?.length || 0;
+        hdr.innerHTML = '\uD83D\uDCC1 ' + fileCount + ' file(s) changed' + (hash ? ' \u00B7 hash ' + hash.slice(0, 8) : '');
+        const body = el("div", { className: "patch-body hidden" });
+        if (files && files.length) {
+          for (const f of files) {
+            body.appendChild(el("div", { className: "patch-file" }, [txt(f)]));
+          }
+        }
+        hdr.onclick = () => { body.classList.toggle("hidden"); };
+        hdr.style.cursor = "pointer";
+        pc.append(hdr, body);
+        bubble.appendChild(pc);
+      }
+      if (part.type === "snapshot") {
+        const snap = (part as any).snapshot as string;
+        const el_ = el("div", { className: "snapshot" });
+        el_.textContent = "\uD83D\uDCF8 Snapshot " + (snap ? snap.slice(0, 8) : "");
+        bubble.appendChild(el_);
+      }
+      if (part.type === "file") {
+        const mime = (part as any).mime as string;
+        const filename = (part as any).filename as string | undefined;
+        const url = (part as any).url as string;
+        const fc = el("div", { className: "file-part" });
+        if (mime && mime.startsWith("image/")) {
+          const img = document.createElement("img");
+          img.className = "file-part-img";
+          img.src = url;
+          img.alt = filename || "image";
+          fc.appendChild(img);
+        } else {
+          const icon = mime?.startsWith("image/") ? "\uD83D\uDDBC" : mime?.startsWith("video/") ? "\uD83C\uDFA5" : mime?.startsWith("audio/") ? "\uD83C\uDFA7" : "\uD83D\uDCC4";
+          fc.innerHTML = icon + ' <a href="' + url + '" target="_blank">' + (filename || url) + '</a>';
+        }
+        bubble.appendChild(fc);
+      }
+      if (part.type === "agent") {
+        const name = (part as any).name as string;
+        const src = (part as any).source as { value: string; start: number; end: number } | undefined;
+        const ac = el("div", { className: "agent-part" });
+        ac.textContent = "\uD83E\uDD16 Agent: " + name + (src ? " [lines " + src.start + "-" + src.end + "]" : "");
+        bubble.appendChild(ac);
+      }
+      if (part.type === "retry") {
+        const attempt = (part as any).attempt as number;
+        const err = (part as any).error as Record<string, unknown> | undefined;
+        const rc = el("div", { className: "retry-part" });
+        const errMsg = err?.data ? ((err.data as any)?.message || "") : (err?.message || "");
+        rc.innerHTML = '\uD83D\uDD04 Retry #' + attempt + (errMsg ? ": " + errMsg : "");
+        if (err) {
+          rc.onclick = () => {
+            const detail = rc.querySelector(".retry-detail");
+            if (detail) detail.classList.toggle("hidden");
+          };
+          rc.style.cursor = "pointer";
+          const detail = el("div", { className: "retry-detail hidden" });
+          detail.textContent = JSON.stringify(err, null, 2);
+          rc.appendChild(detail);
+        }
+        bubble.appendChild(rc);
+      }
+      if (part.type === "compaction") {
+        const auto = (part as any).auto as boolean;
+        const cc = el("div", { className: "compaction" });
+        cc.textContent = "\uD83D\uDCD0 Session compacted" + (auto ? " (auto)" : "");
+        bubble.appendChild(cc);
       }
     }
     // fallback: no parts but content exists (old-style messages)
@@ -1658,7 +1795,17 @@ class App {
             const model = info.modelID || (info.model && info.model.modelID) || "";
             const time = info.time && info.time.created ? Number(info.time.created) : undefined;
             const id = (m.id as string) || (info.id as string) || "";
-            return { role, content, parts, model, time, id };
+            const finish = (m.finish as string) || info.finish || "";
+            const mode = (m.mode as string) || info.mode || "";
+            const parentID = (m.parentID as string) || info.parentID || "";
+            const path = info.path as { cwd: string; root: string } | undefined;
+            const tokens = info.tokens as Msg["tokens"] || (m.tokens as Msg["tokens"]);
+            const cost = (info.cost as number) || (m.cost as number) || 0;
+            const error = info.error as Record<string, unknown> | undefined;
+            const timeCompleted = info.time?.completed ? Number(info.time.completed) : undefined;
+            const agent = (m.agent as string) || info.agent || "";
+            const summary = info.summary as Msg["summary"] | undefined;
+            return { role, content, parts, model, time, id, finish, mode, parentID, path, tokens, cost, error, timeCompleted, agent, summary };
           });
           console.log(`[webview] session-loaded: id=${this.state.currentSessionId}, messages=${this.state.messages.length}`);
           this.renderMessages();
@@ -1853,11 +2000,16 @@ class App {
         const hasVisible = !!(text || (parts && (parts as any[]).some((p: any) => p.type === "text" || p.type === "reasoning" || p.type === "content")));
         const model = (event.modelID as string) || (info.modelID as string) || (info.model && (info.model as any).modelID) || "";
         const time = (event.time && (event.time as any).created ? Number((event.time as any).created) : undefined) || (info.time && (info.time as any).created ? Number((info.time as any).created) : undefined);
+        const finish = (event.finish as string) || (info.finish as string) || "";
+        const mode = (event.mode as string) || (info.mode as string) || "";
+        const tokens = (info.tokens as Msg["tokens"]) || (event.tokens as Msg["tokens"]);
+        const cost = (info.cost as number) || (event.cost as number) || 0;
+        const id = (event.id as string) || (info.id as string) || "";
         if (hasVisible && text) {
           this.streamingSaved = true;
-          this.state.messages.push({ role, content: text, parts, model, time });
+          this.state.messages.push({ role, content: text, parts, model, time, finish, mode, tokens, cost, id });
           if (this.streamingMsgEl) { this.streamingMsgEl.remove(); this.streamingMsgEl = null; }
-          this.appendMessageDOM(role, text, parts, model, time);
+          this.appendMessageDOM({ role, content: text, parts, model, time, finish, mode, tokens, cost, id });
           this.updateTokenDisplay();
         } else if (text) {
           this.appendStreaming(text);
@@ -1908,6 +2060,11 @@ class App {
             p.state = { ...(p.state as Record<string, unknown>), status: "completed", output, content: output };
             break;
           }
+        }
+      } else if (type === "step-start" || type === "step-finish" || type === "snapshot" || type === "patch" || type === "file" || type === "agent" || type === "retry" || type === "compaction") {
+        // push part into streamingParts for final rendering in message.complete
+        if (part) {
+          this.streamingParts.push({ ...part, type });
         }
       } else if (type === "stderr") {
         if (content) this.appendStreaming("\n[stderr: " + content + "]\n");

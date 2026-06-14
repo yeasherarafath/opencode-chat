@@ -588,6 +588,8 @@ export class OpenCodeCli {
             }
           } else if (ptype === "reasoning" && delta) {
             onEvent({ type: "reasoning", text: delta });
+          } else if (ptype === "step-start" || ptype === "step-finish" || ptype === "snapshot" || ptype === "patch" || ptype === "file" || ptype === "agent" || ptype === "retry" || ptype === "compaction") {
+            onEvent({ type: ptype, part });
           } else if (delta) {
             onEvent({ type: "text", content: delta });
           }

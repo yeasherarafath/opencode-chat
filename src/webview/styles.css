@@ -275,6 +275,65 @@ body {
   font-size: 10px; color: var(--on-surface-variant); opacity: .5;
   padding: 4px 0; text-align: center; letter-spacing: .02em;
 }
+.step-start {
+  font-size: 10px; color: var(--primary-fixed-dim); opacity: .7;
+  padding: 4px 0; letter-spacing: .02em;
+}
+.snapshot {
+  font-size: 10px; color: var(--on-surface-variant); opacity: .4;
+  padding: 3px 0; letter-spacing: .02em;
+}
+.compaction {
+  font-size: 10px; color: var(--on-surface-variant); opacity: .4;
+  padding: 3px 0; letter-spacing: .02em;
+}
+.patch {
+  background: var(--surface-container-low);
+  border: 1px solid rgba(66, 71, 84, .2);
+  border-radius: var(--radius-lg); overflow: hidden;
+  margin-top: 6px; font-size: 12px;
+}
+.patch-header {
+  padding: 8px 12px; cursor: pointer;
+  color: var(--primary-fixed-dim); font: var(--font-body-sm);
+  transition: background .15s;
+}
+.patch-header:hover { background: var(--surface-container-high); }
+.patch-body {
+  border-top: 1px solid rgba(66, 71, 84, .1);
+  padding: 6px 12px 8px;
+}
+.patch-body.hidden { display: none; }
+.patch-file {
+  font-family: var(--font-code); font-size: 11px;
+  color: var(--on-surface-variant); padding: 2px 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.file-part {
+  margin-top: 6px; font-size: 12px; color: var(--primary);
+}
+.file-part a { color: var(--primary); text-decoration: underline; }
+.file-part-img {
+  max-width: 100%; max-height: 300px;
+  border-radius: var(--radius-md); display: block;
+  border: 1px solid var(--outline-variant);
+}
+.agent-part {
+  font-size: 11px; color: var(--secondary); opacity: .8;
+  padding: 3px 0; letter-spacing: .02em;
+}
+.retry-part {
+  font-size: 11px; color: var(--error); opacity: .8;
+  padding: 4px 8px; margin-top: 4px;
+  background: rgba(255, 180, 171, .06);
+  border-radius: var(--radius-sm);
+}
+.retry-detail {
+  font-family: var(--font-code); font-size: 10px;
+  color: var(--on-surface-variant); padding: 4px 0 0;
+  white-space: pre-wrap; max-height: 100px; overflow-y: auto;
+}
+.retry-detail.hidden { display: none; }
 .task-inline {
   display: flex; align-items: center; gap: 6px;
   font-size: 12px; padding: 3px 8px; margin: 2px 0;
@@ -359,10 +418,20 @@ body {
 }
 .msg.assistant.streaming .bubble { border-color: var(--primary-container); }
 .msg .tool-call { margin-top: 8px; }
+.msg .tool-call.running { border-color: rgba(173, 198, 255, .3); }
+.msg .tool-call.done { opacity: .75; }
+.msg .tool-call.error { border-color: rgba(255, 180, 171, .3); }
 .msg .tool-call .tool-name { font-weight: 600; color: var(--primary); font: var(--font-body-sm); }
+.msg .tool-call.error .tool-name { color: var(--error); }
 .msg .tool-call .tool-input {
   font-family: var(--font-code); font-size: 11px; margin-top: 4px;
   white-space: pre-wrap; color: var(--on-surface-variant);
+}
+.msg .tool-call .tool-details { margin-top: 6px; border-top: 1px solid rgba(66, 71, 84, .15); padding-top: 6px; }
+.msg .tool-call .tool-details.hidden { display: none; }
+.msg .tool-call .tool-detail-label {
+  font-size: 10px; font-weight: 600; color: var(--on-surface-variant);
+  text-transform: uppercase; letter-spacing: .04em; margin: 4px 0 2px;
 }
 .msg .tool-result { margin-top: 8px; }
 .msg .tool-result-content {
