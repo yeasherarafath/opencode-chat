@@ -712,15 +712,15 @@ class App {
     const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Variant", "data-part": "variant-pill" });
     variantPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedVariant || "Balanced") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
     this.variantPopup = el("div", { className: "absolute bottom-full left-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[120px] z-100 shadow-lg hidden" });
-    const vars = VARIANTS.filter(Boolean);
-    for (const v of vars) {
-      const opt = el("div", { className: "variant-opt px-3 py-1.5 text-xs cursor-pointer font-ui transition-colors duration-100 capitalize hover:bg-primary/8" + (v === this.state.selectedVariant ? " on" : "") }, [txt(v)]);
+    const variantItems = [{ label: "Balanced", value: "" }, ...VARIANTS.filter(Boolean).map(v => ({ label: v, value: v }))];
+    for (const { label, value } of variantItems) {
+      const opt = el("div", { className: "variant-opt px-3 py-1.5 text-xs cursor-pointer font-ui transition-colors duration-100 capitalize hover:bg-primary/8" + (value === this.state.selectedVariant ? " on" : "") }, [txt(label)]);
       opt.onclick = () => {
         this.variantPopup.querySelectorAll(".variant-opt").forEach(el => el.classList.remove("on"));
         opt.classList.add("on");
-        this.state.selectedVariant = v;
+        this.state.selectedVariant = value;
         this.variantPopup.classList.add("hidden");
-        variantPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + v + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
+        variantPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + label + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
       };
       this.variantPopup.appendChild(opt);
     }
@@ -2131,7 +2131,10 @@ class App {
           break;
         case "models":
           this.state.models = msg.models as string[];
-          console.log(`[webview] models: got ${this.state.models.length} models`);
+          if (this.state.models.length && (!this.state.selectedModel || !this.state.models.includes(this.state.selectedModel))) {
+            this.state.selectedModel = this.state.models[0];
+          }
+          console.log(`[webview] models: got ${this.state.models.length} models, selected=${this.state.selectedModel}`);
           this.renderModels();
           break;
         case "agents":
@@ -2381,7 +2384,6 @@ class App {
           const textParts = (parts as any[]).filter((p: any) => p.type === "text" || p.type === "reasoning");
           text = textParts.map((p: any) => p.text || "").join("\n");
         }
-        const hasVisible = !!(text || (parts && (parts as any[]).some((p: any) => p.type === "text" || p.type === "reasoning" || p.type === "content" || p.type === "tool_use" || p.type === "tool" || p.type === "tool-call")));
         const model = (event.modelID as string) || (info.modelID as string) || (info.model && (info.model as any).modelID) || "";
         const time = (event.time && (event.time as any).created ? Number((event.time as any).created) : undefined) || (info.time && (info.time as any).created ? Number((info.time as any).created) : undefined);
         const finish = (event.finish as string) || (info.finish as string) || "";
@@ -2389,7 +2391,7 @@ class App {
         const tokens = (info.tokens as Msg["tokens"]) || (event.tokens as Msg["tokens"]);
         const cost = (info.cost as number) || (event.cost as number) || 0;
         const id = (event.id as string) || (info.id as string) || "";
-        if (hasVisible) {
+        if (text || (parts && (parts as any[]).length > 0)) {
           this.streamingSaved = true;
           const newMsg: Msg = { role, content: text, parts, model, time, finish, mode, tokens, cost, id };
           const existingIdx = id ? this.state.messages.findIndex(m => m.id === id) : -1;
@@ -2461,6 +2463,8 @@ class App {
           this.appendStreamingPart(part, type);
           if (!dup) this.streamingParts.push({ ...part, type });
         }
+      } else if (type === "sessionID") {
+        // session ID is already forwarded via the "session-id" message; ignore.
       } else if (type === "stderr") {
         if (content) this.appendStreaming("\n[stderr: " + content + "]\n");
       } else if (type === "error") {

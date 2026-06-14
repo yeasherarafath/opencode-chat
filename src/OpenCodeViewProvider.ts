@@ -478,7 +478,8 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
           try { this.view?.webview.postMessage({ type: "session-id", sessionId: sid }); }
           catch (e) { this.log(`sendMessage: session-id postMessage error: ${e}`); }
         }
-        if ((event as any).type !== "sessionID") {
+        const etype = String((event as any).type ?? "");
+        if (etype !== "sessionID") {
           try { this.view?.webview.postMessage({ type: "response-chunk", event }); }
           catch (e) { this.log(`sendMessage: onEvent postMessage error: ${e}`); }
         }

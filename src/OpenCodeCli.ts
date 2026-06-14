@@ -373,24 +373,36 @@ export class OpenCodeCli {
         const res = await fetch(`${this.serverUrl}/global/health`);
         if (res.ok) {
           const data = await res.json() as { version?: string };
-          if (data.version) return data.version;
+          if (data.version) return data.version.replace(/^v/i, "").replace(/^opencode[\/\s]/i, "");
         }
       } catch {
-        // fall through
+        this.log("getVersion: server health fetch failed");
+      }
+      try {
+        const res = await fetch(`${this.serverUrl}/health`);
+        if (res.ok) {
+          const data = await res.json() as { version?: string };
+          if (data.version) return data.version.replace(/^v/i, "").replace(/^opencode[\/\s]/i, "");
+        }
+      } catch {
+        this.log("getVersion: fallback health fetch failed");
       }
     }
     if (this.binaryPath) {
       try {
-        return await new Promise<string>((resolve, reject) => {
+        const version = await new Promise<string>((resolve, reject) => {
           execFile(this.binaryPath!, ["--version"], { timeout: 5000 }, (err, stdout) => {
             if (err) reject(err);
-            else resolve(stdout.trim().replace(/^v/i, ""));
+            else resolve(stdout.trim().replace(/^v/i, "").replace(/^opencode[\/\s]/i, ""));
           });
         });
+        this.log(`getVersion: from binary = "${version}"`);
+        return version;
       } catch {
-        // fall through
+        this.log("getVersion: binary --version failed");
       }
     }
+    this.log("getVersion: all methods failed, returning empty");
     return "";
   }
 
@@ -450,6 +462,18 @@ export class OpenCodeCli {
     const session: Session = sessionResult.data!;
     const messages = msgsResult.data ?? [];
     return { ...session, messages };
+  }
+
+  // Extract text content from session.message() API response.
+  // The SDK returns { info: Message, parts: Part[] } — content is inside parts, not top-level.
+  private extractMessageData(msgData: Record<string, unknown>): { content: string; parts: unknown[] } {
+    const parts = (msgData.parts as unknown[]) || [];
+    let content = (msgData.content as string) || (msgData.text as string) || "";
+    if (!content && parts.length) {
+      const textParts = parts.filter((p: any) => p.type === "text");
+      content = textParts.map((p: any) => p.text || "").join("\n");
+    }
+    return { content, parts };
   }
 
   // --- Auto-fetch: SSE subscription to /global/event ---
@@ -787,7 +811,7 @@ export class OpenCodeCli {
               emit({ type: "text", content: delta });
             }
           }
-        } else if (etype === "message.updated") {
+          } else if (etype === "message.updated") {
           hasStarted = true;
           const info = props.info as Record<string, unknown> | undefined;
           if (info?.role === "assistant") {
@@ -799,8 +823,9 @@ export class OpenCodeCli {
               const msgResult = await this.client!.session.message({ path: { id: sessionId, messageID: msgId } });
               const msgData = msgResult.data as Record<string, unknown> | undefined;
               if (msgData) {
-                mcontent = (msgData.content as string) || (msgData.text as string) || "";
-                mparts = (msgData.parts as unknown[]) || [];
+                const extracted = this.extractMessageData(msgData);
+                mcontent = extracted.content;
+                mparts = extracted.parts;
               }
             } catch (e) {
               this.log(`message.updated: fetch msg ${msgId} failed: ${e}`);
@@ -856,18 +881,18 @@ export class OpenCodeCli {
 
       // Final fetch pass: refresh every assistant message we've seen so the
       // webview gets the latest content/parts (server may finalize text after idle).
+      // Use exponential backoff to give the server time to populate the message.
       const finalMsgIds = new Set<string>([...knownMessageIds, ...pendingEmptyMsgIds]);
       if (finalMsgIds.size > 0) {
         this.log(`SSE loop done, refreshing ${finalMsgIds.size} assistant messages...`);
         for (const msgId of finalMsgIds) {
-          for (let retry = 0; retry < 3; retry++) {
+          for (let retry = 0; retry < 6; retry++) {
             try {
-              if (retry > 0) await new Promise(r => setTimeout(r, 200));
+              if (retry > 0) await new Promise(r => setTimeout(r, 300 * (retry + 1)));
               const msgResult = await this.client!.session.message({ path: { id: sessionId, messageID: msgId } });
               const msgData = msgResult.data as Record<string, unknown> | undefined;
               if (msgData) {
-                const content = (msgData.content as string) || (msgData.text as string) || "";
-                const parts = (msgData.parts as unknown[]) || [];
+                const { content, parts } = this.extractMessageData(msgData);
                 const sig = `${content.length}:${parts.length}`;
                 if ((content || parts.length) && lastMessageSig.get(msgId) !== sig) {
                   lastMessageSig.set(msgId, sig);
