@@ -877,7 +877,9 @@ export class OpenCodeCli {
             break;
           }
         } else if (etype === "message.removed" || etype === "session.error") {
-          emit({ type: "error", message: (props.message as string) || "Session error" });
+          const errMsg = (props.message as string) || ((props.error as any)?.data?.message as string) || "Session error";
+          JsonLogger.log("error", { source: "session.error", error: errMsg, properties: props });
+          onError(new Error(errMsg));
           break;
         } else if (
           etype === "server.heartbeat"
