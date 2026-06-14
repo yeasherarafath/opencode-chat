@@ -541,6 +541,7 @@ export class OpenCodeCli {
       let hasStarted = false;
       const knownToolPartIds = new Set<string>();
       const pendingEmptyMsgIds = new Set<string>();
+      const lastMessageSig = new Map<string, string>();
 
       while (!this.sseAbortFlag) {
         let result: IteratorResult<unknown>;
@@ -599,25 +600,28 @@ export class OpenCodeCli {
           const info = props.info as Record<string, unknown> | undefined;
           if (info?.role === "assistant") {
             const msgId = info?.id as string;
-            if (!msgId || knownMessageIds.has(msgId)) { continue; }
-            knownMessageIds.add(msgId);
+            if (!msgId) { continue; }
             let mcontent = "";
             let mparts: unknown[] = [];
-            if (msgId) {
-              try {
-                const msgResult = await this.client!.session.message({ path: { id: sessionId, messageID: msgId } });
-                const msgData = msgResult.data as Record<string, unknown> | undefined;
-                if (msgData) {
-                  mcontent = (msgData.content as string) || (msgData.text as string) || "";
-                  mparts = (msgData.parts as unknown[]) || [];
-                }
-              } catch (e) {
-                this.log(`message.updated: fetch msg ${msgId} failed: ${e}`);
+            try {
+              const msgResult = await this.client!.session.message({ path: { id: sessionId, messageID: msgId } });
+              const msgData = msgResult.data as Record<string, unknown> | undefined;
+              if (msgData) {
+                mcontent = (msgData.content as string) || (msgData.text as string) || "";
+                mparts = (msgData.parts as unknown[]) || [];
               }
+            } catch (e) {
+              this.log(`message.updated: fetch msg ${msgId} failed: ${e}`);
             }
+            const sig = `${mcontent.length}:${mparts.length}`;
+            const prevSig = lastMessageSig.get(msgId);
             if (mcontent || mparts.length) {
-              onEvent({ type: "message", info, role: "assistant", parts: mparts, content: mcontent });
-            } else {
+              if (prevSig !== sig) {
+                lastMessageSig.set(msgId, sig);
+                knownMessageIds.add(msgId);
+                onEvent({ type: "message", info, role: "assistant", parts: mparts, content: mcontent, id: msgId });
+              }
+            } else if (!knownMessageIds.has(msgId)) {
               pendingEmptyMsgIds.add(msgId);
               this.log(`message.updated ${msgId}: deferred (empty content, ${mparts.length} parts)`);
             }
@@ -634,26 +638,31 @@ export class OpenCodeCli {
         }
       }
 
-      // Retry fetching pending empty messages (server may populate them after idle)
-      if (pendingEmptyMsgIds.size > 0) {
-        this.log(`SSE loop done, retrying ${pendingEmptyMsgIds.size} pending empty messages...`);
-        for (const msgId of pendingEmptyMsgIds) {
+      // Final fetch pass: refresh every assistant message we've seen so the
+      // webview gets the latest content/parts (server may finalize text after idle).
+      const finalMsgIds = new Set<string>([...knownMessageIds, ...pendingEmptyMsgIds]);
+      if (finalMsgIds.size > 0) {
+        this.log(`SSE loop done, refreshing ${finalMsgIds.size} assistant messages...`);
+        for (const msgId of finalMsgIds) {
           for (let retry = 0; retry < 3; retry++) {
             try {
-              await new Promise(r => setTimeout(r, 200));
+              if (retry > 0) await new Promise(r => setTimeout(r, 200));
               const msgResult = await this.client!.session.message({ path: { id: sessionId, messageID: msgId } });
               const msgData = msgResult.data as Record<string, unknown> | undefined;
               if (msgData) {
                 const content = (msgData.content as string) || (msgData.text as string) || "";
                 const parts = (msgData.parts as unknown[]) || [];
-                if (content || parts.length) {
-                  onEvent({ type: "message", info: msgData, role: "assistant", parts, content });
-                  this.log(`message.updated ${msgId}: retry succeeded (content=${content.length}, parts=${parts.length})`);
+                const sig = `${content.length}:${parts.length}`;
+                if ((content || parts.length) && lastMessageSig.get(msgId) !== sig) {
+                  lastMessageSig.set(msgId, sig);
+                  onEvent({ type: "message", info: msgData, role: "assistant", parts, content, id: msgId });
+                  this.log(`message ${msgId}: final fetch emitted (content=${content.length}, parts=${parts.length})`);
                   break;
                 }
+                if (content || parts.length) break;
               }
             } catch (e) {
-              this.log(`message.updated ${msgId}: retry ${retry + 1} failed: ${e}`);
+              this.log(`message ${msgId}: final fetch retry ${retry + 1} failed: ${e}`);
             }
           }
         }

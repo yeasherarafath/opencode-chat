@@ -460,6 +460,8 @@ body {
   font: var(--font-body); color: var(--on-surface);
 }
 .msg.assistant.streaming .bubble { border-color: var(--primary-container); }
+.msg .streaming-parts { display: flex; flex-direction: column; gap: 6px; }
+.msg .streaming-parts:empty { display: none; }
 .msg .tool-call { margin-top: 8px; }
 .msg .tool-call.running { border-color: rgba(173, 198, 255, .3); }
 .msg .tool-call.done { opacity: .75; }

@@ -370,8 +370,15 @@ class App {
   private tokenDisplayEl!: HTMLElement;
   private streamingMsgEl: HTMLElement | null = null;
   private streamingContent = "";
+  private streamingReasoning = "";
   private streamingParts: Record<string, unknown>[] = [];
   private streamingSaved = false;
+  private streamingBubble: HTMLElement | null = null;
+  private streamingPartsEl: HTMLElement | null = null;
+  private streamingTextEl: HTMLElement | null = null;
+  private streamingReasoningBodyEl: HTMLElement | null = null;
+  private streamingToolEls: Map<string, HTMLElement> = new Map();
+  private streamingSeenPartIds: Set<string> = new Set();
   private slashMenuEl!: HTMLElement;
   private sessionSearchInput!: HTMLInputElement;
   private sessionListEl!: HTMLElement;
@@ -1420,21 +1427,224 @@ class App {
     const thinking = el("div", { className: "thinking-card" });
     thinking.innerHTML = '<span class="spinner"></span> ' + modelName + ' is thinking...';
     bubble.appendChild(thinking);
+    // live parts container — holds reasoning, text, tool cards, step markers as they arrive
+    const partsEl = el("div", { className: "streaming-parts" });
+    bubble.appendChild(partsEl);
     const stEl = el("div", { className: "streaming-status" });
     bubble.appendChild(stEl);
     bubbleWrap.appendChild(bubble);
     this.streamingMsgEl.appendChild(bubbleWrap);
     this.chatArea.appendChild(this.streamingMsgEl);
+    this.streamingBubble = bubble;
+    this.streamingPartsEl = partsEl;
     this.chatArea.scrollTop = this.chatArea.scrollHeight;
   }
 
-  private appendStreaming(content: string): void {
+  private ensureStreamingParts(): HTMLElement {
     if (!this.streamingMsgEl) this.showThinking();
-    // remove thinking card on first content
     const thinkingCard = this.streamingMsgEl!.querySelector(".thinking-card");
     if (thinkingCard) thinkingCard.remove();
     this.streamingMsgEl!.classList.add("streaming");
+    return this.streamingPartsEl!;
+  }
+
+  private appendStreaming(content: string): void {
+    this.ensureStreamingParts();
     this.streamingContent += content;
+    this.renderStreamingText();
+  }
+
+  private renderStreamingText(): void {
+    if (!this.streamingPartsEl || !this.streamingContent) return;
+    if (!this.streamingTextEl || !this.streamingTextEl.isConnected) {
+      this.streamingTextEl = el("div", { className: "text streaming-text" });
+      this.streamingPartsEl.appendChild(this.streamingTextEl);
+    }
+    this.streamingTextEl.innerHTML = "";
+    this.streamingTextEl.appendChild(renderMarkdown(this.streamingContent));
+    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+  }
+
+  private appendStreamingReasoning(text: string): void {
+    if (!text) return;
+    this.ensureStreamingParts();
+    this.streamingReasoning += text;
+    if (!this.streamingReasoningBodyEl || !this.streamingReasoningBodyEl.isConnected) {
+      const rc = el("div", { className: "reasoning streaming-reasoning" });
+      const hdr = el("div", { className: "reasoning-header" });
+      const hdrLeft = el("div", { className: "reasoning-header-left" });
+      hdrLeft.innerHTML = '<span class="icon">' + Lightbulb + '</span> <span>Reasoning…</span>';
+      hdr.appendChild(hdrLeft);
+      const chevron = el("span", { className: "reasoning-chevron open" });
+      chevron.innerHTML = ChevronDown;
+      hdr.appendChild(chevron);
+      const body = el("div", { className: "reasoning-body open" });
+      hdr.onclick = () => {
+        const open = body.classList.toggle("open");
+        chevron.classList.toggle("open", open);
+      };
+      rc.append(hdr, body);
+      this.streamingPartsEl!.appendChild(rc);
+      this.streamingReasoningBodyEl = body;
+    }
+    this.streamingReasoningBodyEl.innerHTML = "";
+    this.streamingReasoningBodyEl.appendChild(renderMarkdown(this.streamingReasoning));
+    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+  }
+
+  private appendStreamingToolStart(name: string, input: unknown, partId: string): void {
+    this.ensureStreamingParts();
+    if (partId && this.streamingToolEls.has(partId)) return;
+    const tc = el("div", { className: "tool-call running" });
+    if (partId) tc.dataset.partId = partId;
+    const nameLine = el("div", { className: "tool-name" });
+    nameLine.innerHTML = "<span class='spin'>" + Loader2 + "</span> Tool: " + (name || "tool") + (partId ? " \u00B7 " + partId.slice(0, 12) : "");
+    tc.appendChild(nameLine);
+    const details = el("div", { className: "tool-details hidden" });
+    if (input) {
+      details.appendChild(el("div", { className: "tool-detail-label" }, [txt("Input:")]));
+      details.appendChild(el("div", { className: "tool-input" }, [txt(JSON.stringify(input, null, 2))]));
+    }
+    if (details.children.length) {
+      nameLine.onclick = () => { details.classList.toggle("hidden"); };
+      nameLine.style.cursor = "pointer";
+      tc.appendChild(details);
+    }
+    this.streamingPartsEl!.appendChild(tc);
+    if (partId) this.streamingToolEls.set(partId, tc);
+    // when new tool starts, finalize any open text/reasoning blocks so next deltas create fresh ones
+    this.streamingTextEl = null;
+    this.streamingReasoningBodyEl = null;
+    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+  }
+
+  private appendStreamingToolResult(partId: string, output: string, isError: boolean, name: string): void {
+    this.ensureStreamingParts();
+    let tc = partId ? this.streamingToolEls.get(partId) : undefined;
+    if (!tc) {
+      // unknown tool — render a standalone card
+      tc = el("div", { className: "tool-call" + (isError ? " error" : " done") });
+      const nameLine = el("div", { className: "tool-name" });
+      nameLine.innerHTML = "<span>" + (isError ? XCircle : CheckCircle) + "</span> Tool: " + (name || "tool");
+      tc.appendChild(nameLine);
+      this.streamingPartsEl!.appendChild(tc);
+      if (partId) this.streamingToolEls.set(partId, tc);
+    } else {
+      tc.classList.remove("running");
+      tc.classList.add(isError ? "error" : "done");
+      const nameLine = tc.querySelector(".tool-name") as HTMLElement | null;
+      if (nameLine) {
+        const span = nameLine.querySelector("span");
+        if (span) {
+          span.classList.remove("spin");
+          span.innerHTML = isError ? XCircle : CheckCircle;
+        }
+      }
+    }
+    if (output) {
+      let details = tc.querySelector(".tool-details") as HTMLElement | null;
+      if (!details) {
+        details = el("div", { className: "tool-details hidden" });
+        const nameLine = tc.querySelector(".tool-name") as HTMLElement | null;
+        if (nameLine) {
+          nameLine.onclick = () => { details!.classList.toggle("hidden"); };
+          nameLine.style.cursor = "pointer";
+        }
+        tc.appendChild(details);
+      }
+      // remove previous output rows so repeated tool-result events don't stack
+      details.querySelectorAll(".tool-output-row").forEach((n) => n.remove());
+      const labelRow = el("div", { className: "tool-detail-label tool-output-row" }, [txt(isError ? "Error:" : "Output:")]);
+      const contentRow = el("div", { className: "tool-result-content tool-output-row" }, [txt(output.length > 500 ? output.slice(0, 500) + "..." : output)]);
+      details.appendChild(labelRow);
+      details.appendChild(contentRow);
+    }
+    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+  }
+
+  private appendStreamingPart(part: Record<string, unknown>, type: string): void {
+    this.ensureStreamingParts();
+    const partId = (part as any).id as string | undefined;
+    if (partId) {
+      if (this.streamingSeenPartIds.has(partId)) return;
+      this.streamingSeenPartIds.add(partId);
+    }
+    let card: HTMLElement | null = null;
+    if (type === "step-start") {
+      const snap = (part as any).snapshot as string | undefined;
+      card = el("div", { className: "step-start" });
+      card.innerHTML = Play + " Step started" + (snap ? " \u00B7 snapshot " + snap.slice(0, 8) : "");
+    } else if (type === "step-finish") {
+      const reason = (part as any).reason || "stop";
+      const tokens = (part as any).tokens as Record<string, unknown> | undefined;
+      const costV = (part as any).cost as number | undefined;
+      let info = "Step finished: " + reason;
+      if (tokens) info += " \u00B7 " + ((tokens as any).total || 0) + " tokens";
+      if (costV) info += " \u00B7 $" + costV;
+      card = el("div", { className: "step-finish" });
+      card.textContent = info;
+    } else if (type === "patch") {
+      const hash = (part as any).hash as string;
+      const files = (part as any).files as string[] | undefined;
+      const fileCount = files?.length || 0;
+      card = el("div", { className: "patch" });
+      const hdr = el("div", { className: "patch-header" });
+      hdr.innerHTML = GitPullRequest + " " + fileCount + " file(s) changed" + (hash ? " \u00B7 hash " + hash.slice(0, 8) : "");
+      const body = el("div", { className: "patch-body hidden" });
+      if (files && files.length) {
+        for (const f of files) {
+          const fileEl = el("div", { className: "patch-file" });
+          const link = el("span", { className: "patch-file-link" });
+          link.innerHTML = File + " " + f;
+          link.onclick = () => { vscode.postMessage({ type: "open-file", path: f }); };
+          fileEl.appendChild(link);
+          body.appendChild(fileEl);
+        }
+      }
+      hdr.onclick = () => { body.classList.toggle("hidden"); };
+      hdr.style.cursor = "pointer";
+      card.append(hdr, body);
+    } else if (type === "snapshot") {
+      const snap = (part as any).snapshot as string;
+      card = el("div", { className: "snapshot" });
+      card.innerHTML = Camera + " Snapshot " + (snap ? snap.slice(0, 8) : "");
+    } else if (type === "agent") {
+      const name = (part as any).name as string;
+      card = el("div", { className: "agent-part" });
+      card.innerHTML = Bot + " Agent: " + name;
+    } else if (type === "retry") {
+      const attempt = (part as any).attempt as number;
+      const err = (part as any).error as Record<string, unknown> | undefined;
+      const errMsg = err?.data ? ((err.data as any)?.message || "") : (err?.message || "");
+      card = el("div", { className: "retry-part" });
+      card.innerHTML = RotateCcw + " Retry #" + attempt + (errMsg ? ": " + errMsg : "");
+    } else if (type === "compaction") {
+      const auto = (part as any).auto as boolean;
+      card = el("div", { className: "compaction" });
+      card.innerHTML = Archive + " Session compacted" + (auto ? " (auto)" : "");
+    } else if (type === "file") {
+      const mime = (part as any).mime as string;
+      const filename = (part as any).filename as string | undefined;
+      const url = (part as any).url as string;
+      card = el("div", { className: "file-part" });
+      if (mime && mime.startsWith("image/")) {
+        const img = document.createElement("img");
+        img.className = "file-part-img";
+        img.src = url;
+        img.alt = filename || "image";
+        card.appendChild(img);
+      } else {
+        const fileIcon = mime?.startsWith("image/") ? Image : mime?.startsWith("video/") ? Video : mime?.startsWith("audio/") ? Headphones : File;
+        card.innerHTML = fileIcon + ' <a href="' + url + '" target="_blank">' + (filename || url) + '</a>';
+      }
+    }
+    if (card) {
+      this.streamingPartsEl!.appendChild(card);
+      // break current text/reasoning block so next deltas start fresh below this card
+      this.streamingTextEl = null;
+      this.streamingReasoningBodyEl = null;
+      this.chatArea.scrollTop = this.chatArea.scrollHeight;
+    }
   }
 
   private appendStreamingTask(desc: string, status: string): void {
@@ -1452,6 +1662,12 @@ class App {
       this.streamingMsgEl.remove();
       this.streamingMsgEl = null;
     }
+    this.streamingBubble = null;
+    this.streamingPartsEl = null;
+    this.streamingTextEl = null;
+    this.streamingReasoningBodyEl = null;
+    this.streamingToolEls.clear();
+    this.streamingSeenPartIds.clear();
   }
 
   private sendCommand(cmd: string): void {
@@ -1872,6 +2088,7 @@ class App {
           this.setStatus("busy", "Generating...");
           if (!this.streamingMsgEl) this.showThinking();
           this.streamingContent = "";
+          this.streamingReasoning = "";
           this.streamingParts = [];
           this.streamingSaved = false;
           break;
@@ -1882,15 +2099,18 @@ class App {
         case "response-error":
           console.log(`[webview] response-error: ${msg.message}`);
           this.finalizeStreaming();
-          this.state.messages.push({
-            role: "assistant",
-            content: this.streamingContent || "Error: " + (msg.message as string),
-            parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
-          });
-          this.renderMessages();
+          if (!this.streamingSaved) {
+            this.state.messages.push({
+              role: "assistant",
+              content: this.streamingContent || "Error: " + (msg.message as string),
+              parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
+            });
+            this.renderMessages();
+          }
           this.updateTokenDisplay();
           this.state.isRunning = false;
           this.streamingContent = "";
+          this.streamingReasoning = "";
           this.streamingParts = [];
           this.streamingSaved = false;
           this.updateRunningState();
@@ -1899,22 +2119,24 @@ class App {
         case "response-end":
           console.log(`[webview] response-end streamingContentLen=${this.streamingContent.length} saved=${this.streamingSaved} parts=${this.streamingParts.length}`);
           this.finalizeStreaming();
-          if ((this.streamingContent || this.streamingParts.length) && !this.streamingSaved) {
-            this.state.messages.push({
-              role: "assistant",
-              content: this.streamingContent,
-              parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
-            });
-            this.renderMessages();
-          } else if (!this.streamingSaved) {
-            this.state.messages.push({
-              role: "assistant",
-              content: this.streamingContent || "_(no response)_",
-            });
+          if (!this.streamingSaved) {
+            if (this.streamingContent || this.streamingParts.length) {
+              this.state.messages.push({
+                role: "assistant",
+                content: this.streamingContent,
+                parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
+              });
+            } else {
+              this.state.messages.push({
+                role: "assistant",
+                content: "_(no response)_",
+              });
+            }
             this.renderMessages();
           }
           this.state.isRunning = false;
           this.streamingContent = "";
+          this.streamingReasoning = "";
           this.streamingParts = [];
           this.streamingSaved = false;
           this.updateTokenDisplay();
@@ -1937,6 +2159,7 @@ class App {
           }
           this.state.isRunning = false;
           this.streamingContent = "";
+          this.streamingReasoning = "";
           this.streamingParts = [];
           this.streamingSaved = false;
           this.renderMessages();
@@ -2035,7 +2258,7 @@ class App {
         if (content) this.appendStreaming(content);
       } else if (type === "reasoning") {
         const r = (event.text as string) || content || (part?.text as string) || "";
-        if (r) this.appendStreaming(r);
+        if (r) this.appendStreamingReasoning(r);
       } else if (type === "message" || type === "message.complete") {
         const info = (event.info as Record<string, unknown>) || {};
         const role = (event.role as string) || (info.role as string) || "assistant";
@@ -2045,7 +2268,7 @@ class App {
           const textParts = (parts as any[]).filter((p: any) => p.type === "text" || p.type === "reasoning");
           text = textParts.map((p: any) => p.text || "").join("\n");
         }
-        const hasVisible = !!(text || (parts && (parts as any[]).some((p: any) => p.type === "text" || p.type === "reasoning" || p.type === "content")));
+        const hasVisible = !!(text || (parts && (parts as any[]).some((p: any) => p.type === "text" || p.type === "reasoning" || p.type === "content" || p.type === "tool_use" || p.type === "tool" || p.type === "tool-call")));
         const model = (event.modelID as string) || (info.modelID as string) || (info.model && (info.model as any).modelID) || "";
         const time = (event.time && (event.time as any).created ? Number((event.time as any).created) : undefined) || (info.time && (info.time as any).created ? Number((info.time as any).created) : undefined);
         const finish = (event.finish as string) || (info.finish as string) || "";
@@ -2053,11 +2276,19 @@ class App {
         const tokens = (info.tokens as Msg["tokens"]) || (event.tokens as Msg["tokens"]);
         const cost = (info.cost as number) || (event.cost as number) || 0;
         const id = (event.id as string) || (info.id as string) || "";
-        if (hasVisible && text) {
+        if (hasVisible) {
           this.streamingSaved = true;
-          this.state.messages.push({ role, content: text, parts, model, time, finish, mode, tokens, cost, id });
-          if (this.streamingMsgEl) { this.streamingMsgEl.remove(); this.streamingMsgEl = null; }
-          this.appendMessageDOM({ role, content: text, parts, model, time, finish, mode, tokens, cost, id });
+          const newMsg: Msg = { role, content: text, parts, model, time, finish, mode, tokens, cost, id };
+          const existingIdx = id ? this.state.messages.findIndex(m => m.id === id) : -1;
+          if (existingIdx >= 0) {
+            this.state.messages[existingIdx] = newMsg;
+            this.finalizeStreaming();
+            this.renderMessages();
+          } else {
+            this.state.messages.push(newMsg);
+            this.finalizeStreaming();
+            this.appendMessageDOM(newMsg);
+          }
           this.updateTokenDisplay();
         } else if (text) {
           this.appendStreaming(text);
@@ -2086,8 +2317,7 @@ class App {
             arguments: inp,
           });
         } else {
-          const input = event.input ? JSON.stringify(event.input, null, 2) : "";
-          this.appendStreaming("\n[" + (name || "tool") + ": " + input + "]\n");
+          this.appendStreamingToolStart(name, event.input, partId);
           this.streamingParts.push({
             type: "tool_use", tool: name, name,
             id: partId,
@@ -2098,21 +2328,25 @@ class App {
         }
       } else if (type === "tool_result" || type === "tool-result") {
         const output = (event.content as string) || (event.output as string) || "";
-        if (output) this.appendStreaming("\n" + output.trimEnd() + "\n");
-        if (name === "task") this.appendStreamingTask("", "done");
-        // update last matching tool part with result
         const partId = (event.id as string) || "";
+        const isError = !!(event.error || (event as any).isError);
+        if (name === "task") this.appendStreamingTask("", "done");
+        else this.appendStreamingToolResult(partId, output, isError, name);
+        // update last matching tool part with result
         for (let i = this.streamingParts.length - 1; i >= 0; i--) {
           const p = this.streamingParts[i];
           if (p.type === "tool_use" && (!partId || p.id === partId)) {
-            p.state = { ...(p.state as Record<string, unknown>), status: "completed", output, content: output };
+            p.state = { ...(p.state as Record<string, unknown>), status: isError ? "error" : "completed", output, content: output };
             break;
           }
         }
       } else if (type === "step-start" || type === "step-finish" || type === "snapshot" || type === "patch" || type === "file" || type === "agent" || type === "retry" || type === "compaction") {
-        // push part into streamingParts for final rendering in message.complete
+        // render live and keep for final (dedupe by part.id when present)
         if (part) {
-          this.streamingParts.push({ ...part, type });
+          const pid = (part as any).id as string | undefined;
+          const dup = pid && this.streamingParts.some((p) => (p as any).id === pid && (p as any).type === type);
+          this.appendStreamingPart(part, type);
+          if (!dup) this.streamingParts.push({ ...part, type });
         }
       } else if (type === "stderr") {
         if (content) this.appendStreaming("\n[stderr: " + content + "]\n");
