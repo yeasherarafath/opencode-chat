@@ -1489,38 +1489,50 @@ class App {
   }
 
   private renderQuestionCard(questions: Array<Record<string, unknown>>, readOnly: boolean): HTMLElement {
-    const qDiv = el("div", { className: "question-card" });
-    const answers: Record<number, string> = {};
-    const multiSelected: Record<number, Set<string>> = {};
+    const wrap = el("div", { className: "question-card-wrap" });
+    const customInps: HTMLTextAreaElement[] = [];
+    const getSelections: (() => string)[] = [];
+    const getMultis: (() => string)[] = [];
 
     questions.forEach((q, idx) => {
       const qText = (q.question as string) || (q.text as string) || "";
+      const qHeader = (q.header as string) || "";
       const optsRaw = q.options as Array<Record<string, unknown>> | string[] | undefined;
       const qOpts = optsRaw ? optsRaw.map(o => typeof o === "string" ? o : String((o as any).label || "")) : undefined;
       const qType = (q.type as string) || (qOpts ? "select" : "text");
-      if (!qText) return;
+      if (!qText) {
+        customInps.push(null as any);
+        getSelections.push(() => "");
+        getMultis.push(() => "");
+        return;
+      }
 
-      const section = el("div", { className: "q-section" });
-      const label = el("div", { className: "q-label" }, [txt((idx + 1) + ". " + qText)]);
-      section.appendChild(label);
+      const card = el("div", { className: "question-card" });
+
+      if (qHeader) {
+        card.appendChild(el("div", { className: "q-header" }, [txt(qHeader)]));
+      }
+
+      card.appendChild(el("div", { className: "q-label" }, [txt((idx + 1) + ". " + qText)]));
 
       if (qType === "select" && qOpts) {
         const pills = el("div", { className: "q-pills" });
+        let chosen = "";
         for (const opt of qOpts) {
           const btn = el("button", { className: "q-pill" }, [txt(opt)]);
           btn.onclick = () => {
             if (readOnly) return;
             pills.querySelectorAll(".q-pill").forEach(b => b.classList.remove("active"));
             btn.classList.add("active");
-            answers[idx] = opt;
+            chosen = opt;
           };
           pills.appendChild(btn);
         }
-        section.appendChild(pills);
+        card.appendChild(pills);
+        getSelections.push(() => chosen);
       } else if (qType === "multiselect" && qOpts) {
         const grid = el("div", { className: "q-grid" });
         const sel = new Set<string>();
-        multiSelected[idx] = sel;
         for (const opt of qOpts) {
           const lbl = el("label", { className: "q-chk" });
           const box = el("div", { className: "q-chk-box" });
@@ -1534,38 +1546,48 @@ class App {
           };
           grid.appendChild(lbl);
         }
-        section.appendChild(grid);
+        card.appendChild(grid);
+        getMultis.push(() => sel.size ? Array.from(sel).join(", ") : "");
       } else {
-        const inp = el("textarea", { className: "q-input", placeholder: "Describe...", rows: "2" }) as HTMLTextAreaElement;
-        inp.oninput = () => { answers[idx] = inp.value; };
-        section.appendChild(inp);
+        getSelections.push(() => "");
+        getMultis.push(() => "");
       }
-      qDiv.appendChild(section);
+
+      const customSection = el("div", { className: "q-section" });
+      customSection.appendChild(el("div", { className: "q-sublabel" }, [txt("Custom answer")]));
+      const customInp = el("textarea", {
+        className: "q-input",
+        placeholder: "Type your own answer...",
+        rows: "2",
+      }) as HTMLTextAreaElement;
+      if (readOnly) customInp.disabled = true;
+      customSection.appendChild(customInp);
+      card.appendChild(customSection);
+      customInps.push(customInp);
+
+      if (readOnly) card.style.opacity = ".6";
+      wrap.appendChild(card);
     });
 
-    // bottom textarea for custom plan
-    const bottomSection = el("div", { className: "q-section" });
-    bottomSection.appendChild(el("div", { className: "q-label" }, [txt("Write your own plan")]));
-    const planInp = el("textarea", { className: "q-input", placeholder: "Describe your specific requirements...", rows: "3" }) as HTMLTextAreaElement;
-    bottomSection.appendChild(planInp);
-    qDiv.appendChild(bottomSection);
+    if (!readOnly) {
+      const okBtn = el("button", { className: "q-submit" }, [txt("Submit Answers")]);
+      okBtn.onclick = () => {
+        const lines: string[] = [];
+        questions.forEach((q, idx) => {
+          const qText = (q.question as string) || (q.text as string) || "";
+          const custom = (customInps[idx]?.value || "").trim();
+          const sel = getSelections[idx] ? getSelections[idx]() : "";
+          const multi = getMultis[idx] ? getMultis[idx]() : "";
+          const ans = custom || sel || multi;
+          if (ans) lines.push((idx + 1) + ". " + ans);
+        });
+        const allText = lines.length ? lines.join("\n") : "Submitted";
+        this.answerQuestion(allText);
+      };
+      wrap.appendChild(okBtn);
+    }
 
-    // submit button
-    const okBtn = el("button", { className: "q-submit" }, [txt("Submit Answers")]);
-    okBtn.onclick = () => {
-      if (readOnly) return;
-      const lines: string[] = [];
-      questions.forEach((_, idx) => {
-        const a = answers[idx] || (multiSelected[idx] ? Array.from(multiSelected[idx]).join(", ") : "");
-        if (a) lines.push((idx + 1) + ". " + a);
-      });
-      if (planInp.value.trim()) lines.push("Plan: " + planInp.value.trim());
-      this.answerQuestion(lines.length ? lines.join("\n") : planInp.value.trim() || "Submitted");
-    };
-    qDiv.appendChild(okBtn);
-
-    if (readOnly) qDiv.style.opacity = ".6";
-    return qDiv;
+    return wrap;
   }
 
   private renderTaskCard(part: Record<string, unknown>): HTMLElement {

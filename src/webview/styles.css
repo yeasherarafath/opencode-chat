@@ -92,11 +92,22 @@ body {
 .session-item.dim { opacity: .5; cursor: default; justify-content: center; padding: 20px; }
 
 /* ===== Question Card ===== */
+.question-card-wrap { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
 .question-card {
   background: var(--surface-container-low);
   border: 1px solid var(--outline-variant);
-  border-radius: var(--radius-xl); padding: 16px; margin-top: 8px;
-  display: flex; flex-direction: column; gap: 14px;
+  border-radius: var(--radius-xl); padding: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.question-card .q-header {
+  font: var(--font-label); font-weight: 700;
+  color: var(--primary); text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.question-card .q-sublabel {
+  font: var(--font-label); font-size: 11px;
+  color: var(--on-surface-variant);
+  text-transform: uppercase; letter-spacing: .04em;
 }
 .question-card .q-section {
   display: flex; flex-direction: column; gap: 8px;
