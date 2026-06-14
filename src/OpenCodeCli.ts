@@ -183,7 +183,7 @@ export class OpenCodeCli {
     for (const bin of candidates) {
       try {
         await new Promise<void>((resolve, reject) => {
-          execFile(bin, ["--v"], { timeout: 3000 }, (err) => {
+          execFile(bin, ["--version"], { timeout: 3000 }, (err) => {
             if (err) reject(err);
             else resolve();
           });
@@ -203,11 +203,15 @@ export class OpenCodeCli {
       const output = await new Promise<string>((resolve, reject) => {
         execFile(shell, [flag, isWin ? "where opencode" : "which opencode"], { timeout: 5000 }, (err, stdout) => {
           if (err) reject(err);
-          else resolve(stdout.trim().split("\n")[0].trim());
+          else resolve(stdout.trim());
         });
       });
       if (output && !output.includes("Could not find") && !output.includes("not found")) {
-        const p = output.trim();
+        const lines = output.trim().split("\n").map(l => l.trim()).filter(Boolean);
+        // On Windows prefer .cmd wrapper (spawn can't execute bare .js files)
+        const p = isWin
+          ? lines.find(l => l.endsWith(".cmd")) || lines.find(l => l.endsWith(".exe")) || lines[0]
+          : lines[0];
         this.log(`resolveBinary: shell found binary at ${p}`);
         this.binaryPath = p;
         return p;
@@ -224,7 +228,22 @@ export class OpenCodeCli {
     const port = this.serverPort;
     const timeout = this.serverTimeout;
 
-    // strategy 1: spawn serve manually via cross-spawn
+    // strategy 1: connect to an already-running server (preferred — keeps user's config/API keys)
+    try {
+      const url = `http://${hostname}:${port}`;
+      this.log(`start: trying existing server at ${url}`);
+      const res = await fetch(`${url}/health`);
+      if (res.ok) {
+        this.serverUrl = url;
+        this.client = createOpencodeClient({ baseUrl: url }) as import("@opencode-ai/sdk/client").OpencodeClient;
+        this.log("start: connected to existing server");
+        return true;
+      }
+    } catch {
+      this.log("start: no existing server found");
+    }
+
+    // strategy 2: spawn serve manually
     const serverPassword = Math.random().toString(36).slice(2, 10);
     const binary = this.binaryPath !== "opencode" ? this.binaryPath : await this.resolveBinary();
     if (binary) {
@@ -272,21 +291,6 @@ export class OpenCodeCli {
       } catch (e) {
         this.log(`start: manual spawn with serve FAILED: ${e}`);
       }
-    }
-
-    // strategy 3: connect to an already-running server
-    try {
-      const url = `http://${hostname}:${port}`;
-      this.log(`start: trying existing server at ${url}`);
-      const res = await fetch(`${url}/health`);
-      if (res.ok) {
-        this.serverUrl = url;
-        this.client = createOpencodeClient({ baseUrl: url }) as import("@opencode-ai/sdk/client").OpencodeClient;
-        this.log("start: connected to existing server");
-        return true;
-      }
-    } catch {
-      this.log("start: no existing server found");
     }
 
     this.log("start: all strategies FAILED");
@@ -368,40 +372,7 @@ export class OpenCodeCli {
   }
 
   async getVersion(): Promise<string> {
-    // 1. Try binary --v via shell (mirrors what user runs in terminal)
-    const shell = os.platform() === "win32" ? process.env.COMSPEC || "cmd.exe" : "/bin/sh";
-    const shellFlag = os.platform() === "win32" ? "/c" : "-c";
-    try {
-      const version = await new Promise<string>((resolve, reject) => {
-        exec(`"${this.binaryPath}" --v`, { shell, timeout: 5000 }, (err, stdout) => {
-          if (err) reject(err);
-          else resolve(stdout.trim().replace(/^v/i, "").replace(/^opencode[\/\s]/i, ""));
-        });
-      });
-      this.log(`getVersion: from shell = "${version}"`);
-      if (version) return version;
-    } catch {
-      this.log("getVersion: shell exec failed, trying execFile");
-    }
-
-    // 2. Try resolved binary via execFile (fallback)
-    const binPath = this.binaryPath !== "opencode" ? this.binaryPath : await this.resolveBinary().catch(() => null);
-    if (binPath) {
-      try {
-        const version = await new Promise<string>((resolve, reject) => {
-          execFile(binPath, ["--v"], { timeout: 5000 }, (err, stdout) => {
-            if (err) reject(err);
-            else resolve(stdout.trim().replace(/^v/i, "").replace(/^opencode[\/\s]/i, ""));
-          });
-        });
-        this.log(`getVersion: from execFile ${binPath} = "${version}"`);
-        if (version) return version;
-      } catch {
-        this.log("getVersion: execFile --v failed");
-      }
-    }
-
-    // 3. Fallback: try server health endpoints
+    // 1. Try server health endpoints (most reliable when server is running)
     if (this.serverUrl) {
       try {
         const res = await fetch(`${this.serverUrl}/global/health`);
@@ -421,6 +392,20 @@ export class OpenCodeCli {
       } catch {
         this.log("getVersion: fallback health fetch failed");
       }
+    }
+
+    // 2. Try shell exec "opencode --v" (shell resolves PATHEXT on Windows)
+    try {
+      const version = await new Promise<string>((resolve, reject) => {
+        exec("opencode --v", { timeout: 5000 }, (err, stdout) => {
+          if (err) reject(err);
+          else resolve(stdout.trim().replace(/^v/i, "").replace(/^opencode[\/\s]/i, ""));
+        });
+      });
+      this.log(`getVersion: from "opencode --v" = "${version}"`);
+      if (version) return version;
+    } catch {
+      this.log("getVersion: shell exec failed");
     }
 
     this.log("getVersion: all methods failed, returning empty");
