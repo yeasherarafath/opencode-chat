@@ -318,6 +318,22 @@ function fmtTime(ts: number): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+// Hide self-generated artifacts (debug logs, vsix builds, etc.) from rendered
+// patch/file lists so the AI's reported changes don't get polluted by the
+// extension's own write activity.
+const HIDDEN_PATH_PATTERNS: RegExp[] = [
+  /[\\/]logs[\\/]opencode-chat[\\/]/i,
+  /opencode-chat-\d{4}-\d{2}-\d{2}\.ndjson(\.\d+)?$/i,
+];
+function isHiddenArtifactPath(p: string): boolean {
+  if (!p) return false;
+  return HIDDEN_PATH_PATTERNS.some((re) => re.test(p));
+}
+function filterArtifactPaths(files: string[] | undefined): string[] {
+  if (!files || !files.length) return [];
+  return files.filter((f) => !isHiddenArtifactPath(f));
+}
+
 interface QuestionData {
   questions: Array<Record<string, unknown>>;
   messageID?: string;
@@ -1276,13 +1292,19 @@ class App {
       }
       if (part.type === "patch") {
         const hash = (part as any).hash as string;
-        const files = (part as any).files as string[] | undefined;
+        const rawFiles = (part as any).files as string[] | undefined;
+        const files = filterArtifactPaths(rawFiles);
+        const originalCount = rawFiles?.length || 0;
+        if (originalCount > 0 && files.length === 0) {
+          // every file in this patch is a debug artifact (logs/, etc.) — hide entirely
+          continue;
+        }
         const pc = el("div", { className: "patch" });
         const hdr = el("div", { className: "patch-header" });
-        const fileCount = files?.length || 0;
+        const fileCount = files.length;
         hdr.innerHTML = GitPullRequest + ' ' + fileCount + ' file(s) changed' + (hash ? ' \u00B7 hash ' + hash.slice(0, 8) : '');
         const body = el("div", { className: "patch-body hidden" });
-        if (files && files.length) {
+        if (files.length) {
           for (const f of files) {
             const fileEl = el("div", { className: "patch-file" });
             const link = el("span", { className: "patch-file-link" });
@@ -1585,13 +1607,19 @@ class App {
       card.textContent = info;
     } else if (type === "patch") {
       const hash = (part as any).hash as string;
-      const files = (part as any).files as string[] | undefined;
-      const fileCount = files?.length || 0;
+      const rawFiles = (part as any).files as string[] | undefined;
+      const files = filterArtifactPaths(rawFiles);
+      const originalCount = rawFiles?.length || 0;
+      if (originalCount > 0 && files.length === 0) {
+        // patch only touched debug artifacts — skip rendering
+        return;
+      }
+      const fileCount = files.length;
       card = el("div", { className: "patch" });
       const hdr = el("div", { className: "patch-header" });
       hdr.innerHTML = GitPullRequest + " " + fileCount + " file(s) changed" + (hash ? " \u00B7 hash " + hash.slice(0, 8) : "");
       const body = el("div", { className: "patch-body hidden" });
-      if (files && files.length) {
+      if (files.length) {
         for (const f of files) {
           const fileEl = el("div", { className: "patch-file" });
           const link = el("span", { className: "patch-file-link" });
@@ -2106,13 +2134,11 @@ class App {
               parts: this.streamingParts.length ? [...this.streamingParts] : undefined,
             });
             this.renderMessages();
+            // mark saved so the following response-end does not also push a fallback msg
+            this.streamingSaved = true;
           }
           this.updateTokenDisplay();
           this.state.isRunning = false;
-          this.streamingContent = "";
-          this.streamingReasoning = "";
-          this.streamingParts = [];
-          this.streamingSaved = false;
           this.updateRunningState();
           this.setStatus("error", "Error");
           break;
@@ -2224,7 +2250,9 @@ class App {
         case "session-diff":
           console.log(`[webview] session-diff: ${(msg.diff as any[])?.length} files`);
           if (this.pendingDiffResolve) {
-            this.pendingDiffResolve(msg.diff as FileDiff[]);
+            const rawDiff = (msg.diff as FileDiff[]) || [];
+            const filteredDiff = rawDiff.filter((d) => !isHiddenArtifactPath(d.file));
+            this.pendingDiffResolve(filteredDiff);
             this.pendingDiffResolve = null;
           }
           break;

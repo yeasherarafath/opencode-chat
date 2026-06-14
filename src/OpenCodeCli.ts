@@ -316,6 +316,47 @@ export class OpenCodeCli {
     return resolved !== null;
   }
 
+  /**
+   * Verify the opencode server is reachable. If health check fails or no
+   * client exists, tear down stale state and re-run start() to spawn a new
+   * server. Returns true when a working client is available.
+   */
+  async ensureServerHealthy(): Promise<boolean> {
+    const probe = async (): Promise<boolean> => {
+      if (!this.client || !this.serverUrl) return false;
+      try {
+        const res = await fetch(`${this.serverUrl}/health`);
+        return res.ok;
+      } catch {
+        return false;
+      }
+    };
+    if (await probe()) return true;
+    this.log("ensureServerHealthy: server unreachable, attempting restart");
+    JsonLogger.log("meta", { event: "ensureServerHealthy-restart" });
+    // tear down stale references without killing (process may already be dead)
+    this.client = null;
+    this.serverUrl = "";
+    this.serverInstance = null;
+    if (this.serverProc) {
+      const pid = this.serverProc.pid;
+      if (os.platform() === "win32") {
+        try { execFileSync("taskkill", ["/F", "/T", "/PID", String(pid)]); } catch {}
+      } else {
+        try { process.kill(-pid, "SIGTERM"); } catch {}
+      }
+      this.serverProc = null;
+    }
+    try {
+      const started = await this.start();
+      JsonLogger.log("meta", { event: "ensureServerHealthy-restart-done", started });
+      return started && (await probe());
+    } catch (e) {
+      JsonLogger.log("error", { source: "ensureServerHealthy", error: String(e) });
+      return false;
+    }
+  }
+
   async getVersion(): Promise<string> {
     if (this.serverUrl) {
       try {
@@ -502,6 +543,18 @@ export class OpenCodeCli {
         fileCount: options.files?.length || 0,
       },
     });
+
+    // Verify (and if necessary, restart) the opencode server before any API call
+    const healthy = await this.ensureServerHealthy();
+    if (!healthy) {
+      const errMsg = "OpenCode server is not reachable. Please check that opencode is installed and try again.";
+      this.log(`runPrompt: ${errMsg}`);
+      JsonLogger.log("error", { source: "runPrompt", error: errMsg, recoverable: false });
+      onError(new Error(errMsg));
+      JsonLogger.log("meta", { event: "runPrompt-exit", code: 1 });
+      onExit(1);
+      return;
+    }
 
     try {
       let sessionId = options.sessionId;
