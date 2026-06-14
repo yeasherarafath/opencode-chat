@@ -154,7 +154,19 @@ The webview is built with vanilla TypeScript and Tailwind CSS — no framework d
 
 ## Development
 
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) >= 18
+- [OpenCode CLI](https://opencode.ai/install) (`npm install -g opencode-ai`)
+- [VS Code](https://code.visualstudio.com/)
+
+### Setup
+
 ```bash
+# Clone the repo
+git clone https://github.com/yeasherarafath/opencode-chat.git
+cd opencode-chat
+
 # Install dependencies
 npm install
 
@@ -163,18 +175,65 @@ npm run build
 
 # Watch mode (auto-rebuild on changes)
 npm run watch
-
-# Package VSIX
-npm run package
 ```
 
-Press `F5` in VS Code to launch a debug instance with the extension loaded.
+### Run & Debug
+
+Press `F5` in VS Code to launch a new Extension Development Host window with the extension loaded. Set breakpoints in `src/` and use the `Debug: Attach` configuration for the webview.
 
 ### Build Output
 
 - `dist/extension.js` — Extension main process
 - `dist/webview.js` — Webview UI
 - `dist/webview.css` — Tailwind-generated styles
+
+### Scripts
+
+| Script | Description |
+|---|---|
+| `npm run build` | Build extension + webview via esbuild + Tailwind |
+| `npm run watch` | Watch mode — auto-rebuild on file changes |
+| `npm run lint` | Type-check with `tsc --noEmit` |
+| `npm run package` | Package `.vsix` extension artifact |
+
+### Project Structure
+
+```
+src/
+  extension.ts              # Extension entry point & activation
+  OpenCodeCli.ts            # CLI subprocess wrapper & SDK client
+  OpenCodeViewProvider.ts   # Webview provider & message relaying
+  webview/
+    app.ts                  # Chat UI (Vanilla TypeScript + Tailwind CSS)
+    styles.css              # Tailwind input styles
+    components/             # Reusable UI components
+```
+
+## Contributing
+
+Contributions are welcome! Here's how to get started:
+
+1. **Fork** the repo and create a branch from `main`
+2. **Set up** your environment (see [Development](#development) above)
+3. **Make your changes** — keep the code style consistent with the existing codebase (vanilla TypeScript, no framework dependencies)
+4. **Run the type checker** — `npm run lint` to catch type errors
+5. **Test manually** — press `F5` to debug the extension and verify your changes work
+6. **Open a pull request** targeting `main`
+
+### Guidelines
+
+- **Code style** — The project uses vanilla TypeScript + Tailwind CSS. Avoid adding framework dependencies unless absolutely necessary.
+- **Commits** — Write clear, concise commit messages. No strict convention, but descriptive titles help.
+- **Scope** — Keep changes focused. If a PR addresses multiple concerns, consider splitting it.
+- **Issues** — Check existing [issues](https://github.com/yeasherarafath/opencode-chat/issues) before opening a new one. Use issues for bugs, feature requests, and questions.
+
+### Reporting Issues
+
+Found a bug or have a feature request? Open an [issue](https://github.com/yeasherarafath/opencode-chat/issues) with a clear description, steps to reproduce (if applicable), and your environment details.
+
+### License
+
+By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
 
 ## Privacy
 
