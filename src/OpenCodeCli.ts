@@ -1,5 +1,5 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
-import { execFile, execFileSync } from "child_process";
+import { execFile, execFileSync, exec } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
@@ -368,7 +368,40 @@ export class OpenCodeCli {
   }
 
   async getVersion(): Promise<string> {
-    // 1. Try server health endpoints (most reliable when server is running)
+    // 1. Try binary --v via shell (mirrors what user runs in terminal)
+    const shell = os.platform() === "win32" ? process.env.COMSPEC || "cmd.exe" : "/bin/sh";
+    const shellFlag = os.platform() === "win32" ? "/c" : "-c";
+    try {
+      const version = await new Promise<string>((resolve, reject) => {
+        exec(`"${this.binaryPath}" --v`, { shell, timeout: 5000 }, (err, stdout) => {
+          if (err) reject(err);
+          else resolve(stdout.trim().replace(/^v/i, "").replace(/^opencode[\/\s]/i, ""));
+        });
+      });
+      this.log(`getVersion: from shell = "${version}"`);
+      if (version) return version;
+    } catch {
+      this.log("getVersion: shell exec failed, trying execFile");
+    }
+
+    // 2. Try resolved binary via execFile (fallback)
+    const binPath = this.binaryPath !== "opencode" ? this.binaryPath : await this.resolveBinary().catch(() => null);
+    if (binPath) {
+      try {
+        const version = await new Promise<string>((resolve, reject) => {
+          execFile(binPath, ["--v"], { timeout: 5000 }, (err, stdout) => {
+            if (err) reject(err);
+            else resolve(stdout.trim().replace(/^v/i, "").replace(/^opencode[\/\s]/i, ""));
+          });
+        });
+        this.log(`getVersion: from execFile ${binPath} = "${version}"`);
+        if (version) return version;
+      } catch {
+        this.log("getVersion: execFile --v failed");
+      }
+    }
+
+    // 3. Fallback: try server health endpoints
     if (this.serverUrl) {
       try {
         const res = await fetch(`${this.serverUrl}/global/health`);
@@ -387,41 +420,6 @@ export class OpenCodeCli {
         }
       } catch {
         this.log("getVersion: fallback health fetch failed");
-      }
-    }
-
-    // 2. Try SDK client base URL health endpoint (covers cases where serverUrl differs from client baseUrl)
-    if (this.client && !this.serverUrl) {
-      try {
-        const baseUrl = (this.client as any).baseUrl || this.serverUrl;
-        if (baseUrl) {
-          const res = await fetch(`${baseUrl}/health`);
-          if (res.ok) {
-            const data = await res.json() as { version?: string };
-            if (data.version) return data.version.replace(/^v/i, "").replace(/^opencode[\/\s]/i, "");
-          }
-        }
-      } catch {
-        this.log("getVersion: SDK client health fetch failed");
-      }
-    }
-
-    // 3. Resolve and run binary --v
-    const binPath = this.binaryPath !== "opencode"
-      ? this.binaryPath
-      : await this.resolveBinary().catch(() => null);
-    if (binPath) {
-      try {
-        const version = await new Promise<string>((resolve, reject) => {
-          execFile(binPath, ["--v"], { timeout: 5000 }, (err, stdout) => {
-            if (err) reject(err);
-            else resolve(stdout.trim().replace(/^v/i, "").replace(/^opencode[\/\s]/i, ""));
-          });
-        });
-        this.log(`getVersion: from binary = "${version}"`);
-        return version;
-      } catch {
-        this.log("getVersion: binary --v failed");
       }
     }
 
