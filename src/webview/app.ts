@@ -395,6 +395,7 @@ class App {
   private streamingReasoningBodyEl: HTMLElement | null = null;
   private streamingToolEls: Map<string, HTMLElement> = new Map();
   private streamingSeenPartIds: Set<string> = new Set();
+  private pendingSmoothScroll = false;
   private slashMenuEl!: HTMLElement;
   private sessionSearchInput!: HTMLInputElement;
   private sessionListEl!: HTMLElement;
@@ -475,7 +476,7 @@ class App {
     };
     this.searchBarEl.append(this.searchInput, searchClose, searchUp, searchDown, this.searchNavEl);
 
-    this.chatArea = el("div", { className: "flex-1 overflow-y-auto px-3 py-6 flex flex-col gap-5 overflow-x-hidden scroll-smooth" });
+    this.chatArea = el("div", { className: "flex-1 overflow-y-auto px-3 py-6 flex flex-col gap-5 overflow-x-hidden" });
     const inputArea = this.createInputArea();
     const statusBar = this.createStatusBar();
     this.overlayEl = el("div", { className: "fixed inset-0 bg-black/50 z-200 flex items-center justify-center backdrop-blur-sm hidden" });
@@ -1178,7 +1179,7 @@ class App {
         const card = el("div", { className: "session-loading" });
         card.innerHTML = '<span class="spinner"></span> Loading chat...';
         this.chatArea.appendChild(card);
-        this.chatArea.scrollTop = this.chatArea.scrollHeight;
+        this.scrollToBottom(false);
         return;
       }
       this.chatArea.appendChild(el("div", { className: "empty" }, [
@@ -1188,7 +1189,17 @@ class App {
       return;
     }
     for (const msg of this.state.messages) this.appendMessageDOM(msg);
-    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+    const smooth = this.pendingSmoothScroll;
+    this.pendingSmoothScroll = false;
+    this.scrollToBottom(smooth);
+  }
+
+  private scrollToBottom(smooth: boolean): void {
+    if (smooth) {
+      this.chatArea.scrollTo({ top: this.chatArea.scrollHeight, behavior: "smooth" });
+    } else {
+      this.chatArea.scrollTop = this.chatArea.scrollHeight;
+    }
   }
 
   private appendMessageDOM(msg: Msg): void {
@@ -2068,6 +2079,7 @@ class App {
     this.sessionsPanel.classList.add("hidden");
     this.state.messages = [];
     this.state.sessionLoading = true;
+    this.pendingSmoothScroll = true;
     this.setStatus("busy", "Loading...");
     this.renderMessages();
     vscode.postMessage({ type: "load-messages", sessionId: id });
