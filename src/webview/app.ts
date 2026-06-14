@@ -683,7 +683,7 @@ class App {
           const opt = el("div", { className: "model-popup-opt px-3 py-1 text-xs cursor-pointer font-ui transition-colors duration-100 hover:bg-primary/8" + (m === this.state.selectedModel ? " on" : "") }, [txt(m)]);
           opt.onclick = () => {
             this.state.selectedModel = m;
-            modelPopup.classList.add("hidden");
+            modelPopup.style.display = "none";
             modelPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (m || "Model") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
           };
           modelList.appendChild(opt);
@@ -711,7 +711,8 @@ class App {
 
     const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Variant", "data-part": "variant-pill" });
     variantPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedVariant || "Balanced") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
-    this.variantPopup = el("div", { className: "absolute bottom-full left-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[120px] z-100 shadow-lg hidden" });
+    this.variantPopup = el("div", { className: "absolute bottom-full right-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[120px] z-100 shadow-lg" });
+    this.variantPopup.style.display = "none";
     const variantItems = [{ label: "Balanced", value: "" }, ...VARIANTS.filter(Boolean).map(v => ({ label: v, value: v }))];
     for (const { label, value } of variantItems) {
       const opt = el("div", { className: "variant-opt px-3 py-1.5 text-xs cursor-pointer font-ui transition-colors duration-100 capitalize hover:bg-primary/8" + (value === this.state.selectedVariant ? " on" : "") }, [txt(label)]);
@@ -719,15 +720,17 @@ class App {
         this.variantPopup.querySelectorAll(".variant-opt").forEach(el => el.classList.remove("on"));
         opt.classList.add("on");
         this.state.selectedVariant = value;
-        this.variantPopup.classList.add("hidden");
+        this.variantPopup.style.display = "none";
         variantPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + label + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
       };
       this.variantPopup.appendChild(opt);
     }
-    variantPill.onclick = () => this.variantPopup.classList.toggle("hidden");
+    variantPill.onclick = () => {
+      this.variantPopup.style.display = this.variantPopup.style.display === "none" ? "block" : "none";
+    };
     document.addEventListener("click", (e) => {
       if (!variantPill.contains(e.target as Node) && !this.variantPopup.contains(e.target as Node))
-        this.variantPopup.classList.add("hidden");
+        this.variantPopup.style.display = "none";
     });
     document.addEventListener("click", (e) => {
       if (!this.inputTextarea.contains(e.target as Node) && !this.atMenuEl.contains(e.target as Node) && !this.slashMenuEl.contains(e.target as Node)) {
@@ -736,10 +739,9 @@ class App {
       }
     });
     inputToolbar.appendChild(variantPill);
+    inputToolbar.appendChild(this.variantPopup);
 
     inner.appendChild(inputToolbar);
-
-    container.appendChild(this.variantPopup);
 
     this.fileChipsEl = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant hidden" });
     inner.appendChild(this.fileChipsEl);
