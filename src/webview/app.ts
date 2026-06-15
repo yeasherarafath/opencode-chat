@@ -2130,7 +2130,30 @@ class App {
           const raw = msg.messages as Record<string, unknown>[];
           this.state.messages = raw.map((m) => {
             const info = (m as any).info || {};
-            const parts = (m.parts || info.parts) as unknown[] | undefined;
+            let parts = (m.parts || info.parts) as unknown[] | undefined;
+            if (parts) {
+              const extracted: string[] = [];
+              const cleanedParts = parts.map((p: any) => {
+                if ((p.type === "text" || p.type === "content") && typeof p.text === "string") {
+                  const cleaned = p.text.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, (_m: string, c: string) => {
+                    extracted.push(c);
+                    return "";
+                  });
+                  return { ...p, text: cleaned };
+                }
+                return p;
+              });
+              if (extracted.length) {
+                const combined = extracted.join("\n\n");
+                const existing = cleanedParts.find((p: any) => p.type === "reasoning");
+                if (existing) {
+                  existing.text = (existing.text ? existing.text + "\n\n" : "") + combined;
+                } else {
+                  cleanedParts.push({ type: "reasoning", text: combined });
+                }
+              }
+              parts = cleanedParts;
+            }
             let content = (m.content as string) || info.content || "";
             if (!content && parts) {
               content = parts
@@ -2138,6 +2161,7 @@ class App {
                 .map((p: any) => p.text || p.content || "")
                 .join("\n");
             }
+            content = content.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, "");
             const role = (m.role as string) || info.role || "assistant";
             const model = info.modelID || (info.model && info.model.modelID) || "";
             const time = info.time && info.time.created ? Number(info.time.created) : undefined;
