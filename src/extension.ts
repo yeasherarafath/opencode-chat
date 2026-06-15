@@ -110,17 +110,15 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      const commitMessage = await (async () => {
-        outputChannel.appendLine("[OpenCode] Generating commit message...");
-        try {
+      const commitMessage = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: "OpenCode: Generating commit message..." },
+        async () => {
+          outputChannel.appendLine("[OpenCode] Generating commit message...");
           const msg = await cli.generateCommitMessage(diff);
           outputChannel.appendLine(`[OpenCode] Generated: "${msg}"`);
           return msg;
-        } catch (e) {
-          outputChannel.appendLine(`[OpenCode] Generation failed: ${e}`);
-          throw e;
         }
-      })();
+      );
 
       // Focus SCM view to ensure input box is live
       try {
