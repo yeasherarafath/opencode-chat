@@ -2,6 +2,55 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.2.5] - 2026-06-16
+
+### Added
+- Generate commit message command (`OpenCode: Generate Commit Message`) in SCM title bar
+- Progress notification while generating commit message
+- Optional `slug` property to Session and SessionInfo interfaces
+- Extension version display in session state modal
+- Current session name shown in status bar
+
+### Changed
+- Enhanced message processing to clean and extract content from `<think>` tags into reasoning sections
+- Pass extension version to OpenCodeViewProvider for improved state management
+- Status bar truncation for long session names
+- Updated README to clarify compatibility with VS Code-compatible editors
+
+## [0.2.4] - 2026-06-15
+
+### Added
+- Badges for Visual Studio Marketplace and Open VSX in README
+- CI and publish workflows for automated builds and releases
+- Support beta versioning in release script
+
+### Changed
+- Improved `<think>` block rendering with DOM-safe placeholders
+- Enhanced `<think>` block handling in streaming content
+- Expanded README with detailed features and benefits
+- Updated README and configuration for new features and improvements
+
+## [0.2.3] - 2026-06-14
+
+### Changed
+- Updated README and configuration for new features and improvements
+
+## [0.2.2] - 2026-06-14
+
+### Changed
+- Updated chat image in media directory
+- Removed logo credit section from README.md
+
+## [0.2.1] - 2026-06-14
+
+### Changed
+- Updated README and configuration for new features and improvements
+
+## [0.2.0] - 2026-06-14
+
+### Changed
+- Updated branding and release notes
+
 ## [0.2.0-beta.3] - 2026-06-14
 
 ### Added
