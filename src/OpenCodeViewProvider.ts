@@ -9,11 +9,13 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
   private isInstalled = false;
   private opencodeVersion = "";
+  private extensionVersion = "";
   private cli: OpenCodeCli;
 
-  constructor(extensionUri: vscode.Uri, cli: OpenCodeCli) {
+  constructor(extensionUri: vscode.Uri, cli: OpenCodeCli, extensionVersion: string) {
     this.cli = cli;
     this.extensionUri = extensionUri;
+    this.extensionVersion = extensionVersion;
   }
 
   private log(msg: string): void {
@@ -354,7 +356,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     const defaultModel = cfg.get<string>("defaultModel") || "";
     const defaultAgent = cfg.get<string>("defaultAgent") || "";
     this.log(`sendInitialState: posting state isInstalled=${this.isInstalled} version=${this.opencodeVersion}`);
-    this.view.webview.postMessage({ type: "state", isInstalled: this.isInstalled, opencodeVersion: this.opencodeVersion, defaultModel, defaultAgent });
+    this.view.webview.postMessage({ type: "state", isInstalled: this.isInstalled, opencodeVersion: this.opencodeVersion, extensionVersion: this.extensionVersion, defaultModel, defaultAgent });
     if (!this.isInstalled) { this.log("sendInitialState: not installed, skip refresh"); return; }
     this.log("sendInitialState: refreshing sessions/models/agents");
     try {
@@ -380,6 +382,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
         type: "state-info",
         isInstalled: this.isInstalled,
         opencodeVersion: this.opencodeVersion,
+        extensionVersion: this.extensionVersion,
         sessionCount: sessions.length,
       });
     } catch (e) {

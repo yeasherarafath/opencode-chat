@@ -284,7 +284,7 @@ interface FileDiff { file: string; before: string; after: string; additions: num
 interface ProviderInfo { id: string; name: string; key?: string; modelCount: number }
 
 interface AppState {
-  isInstalled: boolean; opencodeVersion: string;
+  isInstalled: boolean; opencodeVersion: string; extensionVersion: string;
   sessions: Session[]; currentSessionId: string | null;
   messages: Msg[];
   models: string[]; agents: string[]; selectedModel: string; selectedAgent: string; selectedVariant: string;
@@ -299,7 +299,7 @@ interface AppState {
 
 class App {
   private state: AppState = {
-    isInstalled: false, opencodeVersion: "",
+    isInstalled: false, opencodeVersion: "", extensionVersion: "",
     sessions: [], currentSessionId: null, messages: [],
     models: [], agents: [], selectedModel: "", selectedAgent: "", selectedVariant: "",
     isRunning: false, showSessions: true, sessionCount: 0, sessionFilter: "", workspaceFiles: [], attachedFiles: [], pendingQuestion: null, sessionLoading: false,
@@ -1072,6 +1072,7 @@ class App {
     modal.appendChild(el("h3", { className: "text-headline mb-3" }, [txt("OpenCode State")]));
 
     const rows: [string, string][] = [
+      ["Extension Version", s.extensionVersion || "—"],
       ["CLI Installed", s.isInstalled ? "Yes" : "No"],
       ["CLI Version", s.opencodeVersion || "—"],
       ["Status", s.isRunning ? "Running" : "Ready"],
@@ -2095,6 +2096,7 @@ class App {
           console.log(`[webview] state: isInstalled=${msg.isInstalled}, version=${msg.opencodeVersion}`);
           this.state.isInstalled = msg.isInstalled as boolean;
           this.state.opencodeVersion = (msg.opencodeVersion as string) || "";
+          this.state.extensionVersion = (msg.extensionVersion as string) || "";
           if (msg.defaultModel) this.state.selectedModel = msg.defaultModel as string;
           if (msg.defaultAgent) this.state.selectedAgent = msg.defaultAgent as string;
           this.render();

@@ -49,7 +49,8 @@ export async function activate(context: vscode.ExtensionContext) {
     outputChannel.appendLine(`[OpenCode Chat] JsonLogger init error: ${e}`);
   }
 
-  const provider = new OpenCodeViewProvider(context.extensionUri, cli);
+  const extVersion = context.extension.packageJSON.version || "0.0.0";
+  const provider = new OpenCodeViewProvider(context.extensionUri, cli, extVersion);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
