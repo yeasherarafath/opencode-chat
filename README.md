@@ -57,6 +57,63 @@ A full-featured chat UI for [OpenCode](https://opencode.ai) — the AI coding ag
 - **Model Count** — See how many models each provider offers
 - **Multi-Provider** — Works with any provider configured in the opencode CLI
 
+## Why OpenCode Chat
+
+Beyond the feature list, here's what makes this extension feel different to use.
+
+### See the AI think
+- **Live reasoning stream** — watch the model's chain-of-thought unfold in a collapsible card right next to its answer, token by token.
+- **Streaming that just works** — text flows in as the model generates it, with no flicker, no re-renders, no dropped chunks on busy agents.
+- **Effort presets** — one-click switch between Balanced, High, Max, Minimal, Medium, and Low to trade speed for depth.
+
+### Know what you're spending
+- **Token and cost counter** in the status bar shows you exactly what each session used, with friendly k/M formatting.
+- **Cache-aware totals** — the count respects cached reads and writes, so the number reflects what you actually pay.
+- **Session info modal** — a quick `ⓘ` reveals the CLI version, session IDs, and which model/agent is active.
+
+### Sessions follow you everywhere
+- **Auto-discovery across the opencode ecosystem** — start a chat in the CLI, TUI, or web, and it shows up in the sidebar instantly.
+- **No spam refreshes** — bulk imports are collapsed into a single update, so the list stays calm.
+- **Today / Yesterday / Earlier grouping** with a quick search box, plus inline Rename, Share, Diff, Fork, Summarize, Export, and Delete on every row.
+
+### Just works on Windows, Mac, and Linux
+- **Smart binary detection** — finds the `opencode` CLI whether it lives in `PATH`, in the npm global folder, or anywhere you point it via settings. No more "command not found" on fresh Windows installs.
+- **No orphaned processes** — when VS Code closes, the entire server tree (including MCP and LSP children) is cleaned up.
+- **Self-healing connection** — if the server hiccups, the extension quietly brings it back without you noticing.
+
+### Server you can trust
+- **Per-session password** — each spawn uses a fresh random password; nothing hardcoded.
+- **No port collisions** — the server picks its own port and reports the real URL back.
+- **Pure mode** — turn off plugins for a leaner, lighter setup on low-memory machines.
+- **Keep the server alive between windows** — a single setting decides whether VS Code fully shuts it down on close.
+
+### Input box that helps you move faster
+- **Slash command palette** — 15+ built-ins like `/diff`, `/fork`, `/share`, `/review`, `/sessions`, `/mcps`, `/skills`, browsable with arrow keys.
+- **`@` to mention files** — fuzzy, live, and sanitised; pairs with a native picker for absolute paths.
+- **In-chat question cards** — when the agent needs your input, options appear as buttons with a "type your own" box.
+- **Search inside a chat** — `Ctrl/Cmd+F` opens a search bar with up/down match navigation and a live count.
+- **Copy or revert any message** — one click to copy assistant text, or roll a user message back to a previous version.
+
+### Code, in context
+- **Session diff viewer** — see every file the agent changed with add/delete counts.
+- **Beautiful code blocks** — copy buttons on every block, plus syntax highlighting for 40+ languages (no external CDN, no tracking).
+- **Inline tool cards** — running and completed tool calls show up right inside the chat with titles and how long they took.
+
+### Pick a model without the friction
+- **Searchable model picker** grouped by provider, with a little dot showing whether your API key is set.
+- **Providers panel** — one glance at every configured provider, its key status, and how many models it offers.
+- **Works with any provider** — anything the opencode CLI knows about is available; no provider code lives in the extension.
+
+### Built to last
+- **Opt-in debug logger** — turn it on for support, leave it off for zero overhead. Logs roll daily and self-clean.
+- **Settings react live** — tweak auto-fetch and the sidebar updates without a reload.
+- **Hardened webview** — scripts run with a nonce, no inline JS, no remote sources.
+- **No webview framework** — vanilla TypeScript + Tailwind means fast load and no framework upgrade churn.
+
+### Local-first privacy
+- **100% local** — the extension just shells out to your `opencode` binary. No telemetry, no relay, no middleman.
+- **No extra network calls** beyond the AI providers you choose to configure.
+
 ## Requirements
 
 The [opencode CLI](https://opencode.ai/install) must be installed and available on your PATH.
