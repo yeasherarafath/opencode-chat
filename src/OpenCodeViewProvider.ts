@@ -411,7 +411,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async refreshModels(): Promise<void> {
+  async refreshModels(): Promise<void> {
     if (!this.view) { this.log("refreshModels: no view, skip"); return; }
     this.log("refreshModels");
     try {

@@ -1403,8 +1403,6 @@ class App {
       bubble.appendChild(textEl);
     }
 
-
-
     bubbleWrap.appendChild(bubble);
 
     // message actions (ai-chat-with-question.html line 259-268)
