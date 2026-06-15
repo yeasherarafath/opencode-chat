@@ -162,9 +162,9 @@ function renderThinkBlock(content: string): HTMLElement {
 function renderMarkdown(text: string): HTMLElement {
   const root = el("div", { className: "md" });
 
-  // Extract <think> blocks on their own lines, replace with placeholders
+  // Extract <think> blocks, replace with placeholders (permissive: tags may be inline or at EOL)
   const thinkBlocks: string[] = [];
-  const cleanText = text.replace(/(?:^|\n)\s*<think>([\s\S]*?)<\/think>\s*(?:\n|$)/g, (_, content) => {
+  const cleanText = text.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, (_, content) => {
     const idx = thinkBlocks.length;
     thinkBlocks.push(content);
     return "\n\x00THINK" + idx + "\x00\n";
@@ -326,6 +326,7 @@ class App {
   private streamingMsgEl: HTMLElement | null = null;
   private streamingContent = "";
   private streamingReasoning = "";
+  private streamingThinkOpen = false;
   private streamingParts: Record<string, unknown>[] = [];
   private streamingSaved = false;
   private streamingBubble: HTMLElement | null = null;
@@ -1196,7 +1197,16 @@ class App {
         const inp = (st?.input || part.input || {}) as Record<string, unknown>;
         const qArr = inp.questions as Array<Record<string, unknown>> | undefined;
         const qs = (qArr && qArr.length) ? qArr : [inp];
-        const qReadOnly = !this.state.pendingQuestion;
+        const partStatus = (st?.status as string) || "";
+        const partOutput = st?.output;
+        const qReadOnly = partStatus === "completed" || partStatus === "cancelled" || partOutput != null;
+        if (!qReadOnly && !this.state.pendingQuestion) {
+          this.state.pendingQuestion = {
+            questions: qs,
+            messageID: (part as any).messageID || (part as any).message_id || "",
+            partID: (part as any).id || "",
+          };
+        }
         bubble.appendChild(this.renderQuestionCard(qs, qReadOnly));
       } else if ((part.type === "tool_use" || part.type === "tool-call" || part.type === "tool") && (part as any).tool === "task") {
         bubble.appendChild(this.renderTaskCard(part as Record<string, unknown>));
@@ -1492,8 +1502,33 @@ class App {
   }
 
   private appendStreaming(content: string): void {
+    if (!content) return;
     this.ensureStreamingParts();
-    this.streamingContent += content;
+    let buf = content;
+    while (buf.length) {
+      if (this.streamingThinkOpen) {
+        const closeIdx = buf.indexOf("</think>");
+        if (closeIdx === -1) {
+          this.appendStreamingReasoning(buf);
+          buf = "";
+        } else {
+          this.appendStreamingReasoning(buf.slice(0, closeIdx));
+          buf = buf.slice(closeIdx + "</think>".length);
+          this.streamingThinkOpen = false;
+        }
+      } else {
+        const openIdx = buf.indexOf("<think>");
+        if (openIdx === -1) {
+          this.streamingContent += buf;
+          buf = "";
+        } else {
+          this.streamingContent += buf.slice(0, openIdx);
+          buf = buf.slice(openIdx + "<think>".length);
+          this.streamingThinkOpen = true;
+          this.appendStreamingReasoning("");
+        }
+      }
+    }
     this.renderStreamingText();
   }
 
@@ -2142,6 +2177,7 @@ class App {
           if (!this.streamingMsgEl) this.showThinking();
           this.streamingContent = "";
           this.streamingReasoning = "";
+          this.streamingThinkOpen = false;
           this.streamingParts = [];
           this.streamingSaved = false;
           break;
@@ -2363,8 +2399,33 @@ class App {
         }
         if (text || (parts && (parts as any[]).length > 0)) {
           this.streamingSaved = true;
-          // Preserve streamed reasoning if the final parts don't include it
+          // Defensive: strip any <think>…</think> that leaked into text parts and merge into reasoning
           let finalParts = parts as Record<string, unknown>[];
+          if (finalParts && finalParts.length) {
+            const extracted: string[] = [];
+            finalParts = finalParts.map((p: any) => {
+              if ((p.type === "text" || p.type === "content") && typeof p.text === "string") {
+                const cleaned = p.text.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, (_, c: string) => {
+                  extracted.push(c);
+                  return "";
+                });
+                return { ...p, text: cleaned };
+              }
+              return p;
+            });
+            if (extracted.length) {
+              const combined = extracted.join("\n\n");
+              const existing = finalParts.find((p: any) => p.type === "reasoning");
+              if (existing) {
+                existing.text = (existing.text ? existing.text + "\n\n" : "") + combined;
+              } else {
+                finalParts = [...finalParts, { type: "reasoning", text: combined }];
+              }
+            }
+            // also strip think from `text` content field if present
+            text = text.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, "");
+          }
+          // Preserve streamed reasoning if the final parts don't include it
           if (this.streamingReasoning && (!finalParts || !finalParts.some(p => p.type === "reasoning"))) {
             finalParts = [...(finalParts || []), { type: "reasoning", text: this.streamingReasoning }];
           }
