@@ -978,10 +978,6 @@ export class OpenCodeCli {
     const sessionId = createResult.data!.id;
 
     try {
-      const events = await this.client!.event.subscribe();
-      const iterator = events.stream[Symbol.asyncIterator]();
-      let pendingEvent = iterator.next();
-
       await this.client!.session.promptAsync({
         path: { id: sessionId },
         body: {
@@ -989,55 +985,57 @@ export class OpenCodeCli {
         },
       });
 
-      let deltaText = "";
-      let idleSeen = false;
+      // Poll for the assistant response
+      let response = "";
       const deadline = Date.now() + 60000;
-      while (Date.now() < deadline) {
-        const result = await pendingEvent;
-        pendingEvent = iterator.next();
-        if (result.done) { this.log("generateCommitMessage: SSE stream ended"); break; }
-        const event = result.value as Record<string, unknown>;
-        const props = (event.properties ?? {}) as Record<string, unknown>;
-        const etype = event.type as string;
-
-        if (etype === "message.part.delta" && props.field === "text") {
-          const delta = props.delta as string;
-          if (delta) { deltaText += delta; }
-        } else if (etype === "session.status") {
-          const st = (props.status as Record<string, unknown>)?.type as string;
-          this.log(`generateCommitMessage: session.status=${st}`);
-          if (st === "idle") { idleSeen = true; break; }
+      while (Date.now() < deadline && !response) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const msgsResult = await this.client!.session.messages({ path: { id: sessionId } });
+          const msgs = (msgsResult.data ?? []) as Record<string, unknown>[];
+          this.log(`generateCommitMessage: poll got ${msgs.length} msgs`);
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const info = msgs[i].info as Record<string, unknown> | undefined;
+            const msgId = (info?.id ?? msgs[i].id) as string;
+            const msgParts = (msgs[i].parts ?? []) as Record<string, unknown>[];
+            this.log(`generateCommitMessage: msg[${i}] id=${msgId} parts=${msgParts.length}`);
+            if (!msgId) continue;
+            // Parts may already contain the text directly
+            const inlineText = msgParts
+              .filter((p) => p.type === "text")
+              .map((p) => p.text as string).join("").trim();
+            if (inlineText) {
+              const inlineRole = info?.role as string;
+              if (inlineRole === "assistant") { response = inlineText; break; }
+            }
+            // Also try fetching full message detail
+            try {
+              const detail = await this.client!.session.message({ path: { id: sessionId, messageID: msgId } });
+              const data = detail.data as Record<string, unknown> | undefined;
+              if (!data) { this.log(`generateCommitMessage: detail[${i}] no data`); continue; }
+              const dataKeys = Object.keys(data).join(",");
+              const parts = (data.parts ?? []) as Record<string, unknown>[];
+              const textParts = parts.filter((p) => p.type === "text");
+              const role = (data.role ?? info?.role) as string;
+              const text = textParts.map((p) => p.text as string).join("").trim()
+                || (data.content as string)?.trim()
+                || (data.text as string)?.trim() || "";
+              this.log(`generateCommitMessage: detail[${i}] role=${role} parts=${parts.length} textParts=${textParts.length} textLen=${text.length} keys=${dataKeys}`);
+              if (role === "assistant" && text) { response = text; break; }
+            } catch (e) {
+              this.log(`generateCommitMessage: detail[${i}] error: ${e}`);
+            }
+          }
+        } catch (e) {
+          this.log(`generateCommitMessage: poll error: ${e}`);
         }
       }
-      this.log(`generateCommitMessage: loop exit idle=${idleSeen} deltaLen=${deltaText.length} timeout=${Date.now() >= deadline}`);
 
       // Strip thinking blocks then take first line
-      let response = deltaText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-      if (!response) response = deltaText.replace(/^<think>[\s\S]*$/m, "").trim();
-      if (!response) {
-        for (let retry = 0; retry < 5 && !response; retry++) {
-          if (retry) await new Promise((r) => setTimeout(r, 1000));
-          try {
-            const msgsResult = await this.client!.session.messages({ path: { id: sessionId } });
-            const msgs = (msgsResult.data ?? []) as Record<string, unknown>[];
-            this.log(`generateCommitMessage: fetched ${msgs.length} messages (retry=${retry})`);
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              const msg = msgs[i];
-              const role = msg.role as string;
-              const parts = (msg.parts ?? []) as Record<string, unknown>[];
-              const textParts = parts.filter((p) => p.type === "text");
-              const text = textParts.map((p) => p.text as string).join("").trim()
-                || (msg.content as string)?.trim() || "";
-              this.log(`generateCommitMessage: msg[${i}] role=${role} textLen=${text.length}`);
-              if (role === "assistant" && text) {
-                response = text;
-                break;
-              }
-            }
-          } catch (e) {
-            this.log(`generateCommitMessage: fetch error: ${e}`);
-          }
-        }
+      if (response) {
+        const cleaned = response.replace(/<(think|Thought|thinking)[\s\S]*?<\/(think|Thought|thinking)>/g, "").trim();
+        response = cleaned || response.replace(/^<(think|Thought|thinking)[\s\S]*$/im, "").trim();
+        response = response || "";
       }
 
       const result = (response || "").split("\n")[0].trim();

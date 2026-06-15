@@ -12,7 +12,6 @@ package-lock.json
 *.map
 design/
 release.js
-media/icon.svg
 .vscodeignore
 logs/**
 release/**
