@@ -966,6 +966,88 @@ export class OpenCodeCli {
     });
   }
 
+  async generateCommitMessage(diff: string): Promise<string> {
+    const prompt = `Write a one-line conventional commit message for these changes (format: type(scope): description, e.g. "feat: add login"). Output ONLY the commit message, nothing else:\n${diff}`;
+
+    const healthy = await this.ensureServerHealthy();
+    if (!healthy) throw new Error("OpenCode server is not reachable");
+
+    const createResult = await this.client!.session.create({
+      body: { title: "commit" },
+    });
+    const sessionId = createResult.data!.id;
+
+    try {
+      const events = await this.client!.event.subscribe();
+      const iterator = events.stream[Symbol.asyncIterator]();
+      let pendingEvent = iterator.next();
+
+      await this.client!.session.promptAsync({
+        path: { id: sessionId },
+        body: {
+          parts: [{ type: "text" as const, text: prompt }],
+        },
+      });
+
+      let deltaText = "";
+      let idleSeen = false;
+      const deadline = Date.now() + 60000;
+      while (Date.now() < deadline) {
+        const result = await pendingEvent;
+        pendingEvent = iterator.next();
+        if (result.done) { this.log("generateCommitMessage: SSE stream ended"); break; }
+        const event = result.value as Record<string, unknown>;
+        const props = (event.properties ?? {}) as Record<string, unknown>;
+        const etype = event.type as string;
+
+        if (etype === "message.part.delta" && props.field === "text") {
+          const delta = props.delta as string;
+          if (delta) { deltaText += delta; }
+        } else if (etype === "session.status") {
+          const st = (props.status as Record<string, unknown>)?.type as string;
+          this.log(`generateCommitMessage: session.status=${st}`);
+          if (st === "idle") { idleSeen = true; break; }
+        }
+      }
+      this.log(`generateCommitMessage: loop exit idle=${idleSeen} deltaLen=${deltaText.length} timeout=${Date.now() >= deadline}`);
+
+      // Strip thinking blocks then take first line
+      let response = deltaText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+      if (!response) response = deltaText.replace(/^<think>[\s\S]*$/m, "").trim();
+      if (!response) {
+        for (let retry = 0; retry < 5 && !response; retry++) {
+          if (retry) await new Promise((r) => setTimeout(r, 1000));
+          try {
+            const msgsResult = await this.client!.session.messages({ path: { id: sessionId } });
+            const msgs = (msgsResult.data ?? []) as Record<string, unknown>[];
+            this.log(`generateCommitMessage: fetched ${msgs.length} messages (retry=${retry})`);
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              const msg = msgs[i];
+              const role = msg.role as string;
+              const parts = (msg.parts ?? []) as Record<string, unknown>[];
+              const textParts = parts.filter((p) => p.type === "text");
+              const text = textParts.map((p) => p.text as string).join("").trim()
+                || (msg.content as string)?.trim() || "";
+              this.log(`generateCommitMessage: msg[${i}] role=${role} textLen=${text.length}`);
+              if (role === "assistant" && text) {
+                response = text;
+                break;
+              }
+            }
+          } catch (e) {
+            this.log(`generateCommitMessage: fetch error: ${e}`);
+          }
+        }
+      }
+
+      const result = (response || "").split("\n")[0].trim();
+      this.log(`generateCommitMessage: returning "${result}"`);
+      return result;
+    } finally {
+      try { await this.client!.session.delete({ path: { id: sessionId } }); } catch {}
+    }
+  }
+
   detach(): void {
     this.log("detach: releasing server without killing");
     JsonLogger.log("meta", { event: "detach" });

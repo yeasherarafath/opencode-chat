@@ -148,8 +148,22 @@
       {
         "command": "opencode-chat.refreshModels",
         "title": "OpenCode Chat: Refresh Models"
+      },
+      {
+        "command": "opencode-chat.generateCommitMessage",
+        "title": "OpenCode: Generate Commit Message",
+        "icon": "media/icon.png"
       }
-    ]
+    ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "opencode-chat.generateCommitMessage",
+          "group": "navigation",
+          "when": "scmProvider == git"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "node esbuild.js",
