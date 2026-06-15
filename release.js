@@ -23,7 +23,7 @@ const path = require("path");
 const PKG_PATH = path.join(__dirname, "package.json");
 const TAG_PREFIX = "v";
 const args = process.argv.slice(2);
-const BUMP = args.find(a => /^\d+\.\d+\.\d+$/.test(a) || /^(patch|minor|major)$/.test(a)) || "patch";
+const BUMP = args.find(a => /^\d+\.\d+\.\d+(-beta\.\d+)?$/.test(a) || /^(patch|minor|major|beta)$/.test(a)) || "patch";
 const DRY_RUN = args.includes("--dry-run");
 const FORCE = args.includes("--force");
 
@@ -62,17 +62,23 @@ function exec(cmd) {
 function resolveVersion(bump) {
   const pkg = readPkg();
   const current = pkg.version;
-  const m = current.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  const m = current.match(/^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/);
 
   function core(a, b, c) { return [a, b, c].join("."); }
 
   let next;
-  if (/^\d+\.\d+\.\d+$/.test(bump)) {
+  if (/^\d+\.\d+\.\d+(-beta\.\d+)?$/.test(bump)) {
     next = bump;
   } else if (bump === "major") {
     next = core(+m[1] + 1, 0, 0);
   } else if (bump === "minor") {
     next = core(m[1], +m[2] + 1, 0);
+  } else if (bump === "beta") {
+    if (m[4] !== undefined) {
+      next = `${core(m[1], m[2], m[3])}-beta.${+m[4] + 1}`;
+    } else {
+      next = `${current}-beta.0`;
+    }
   } else {
     next = core(m[1], m[2], +m[3] + 1);
   }
@@ -113,9 +119,14 @@ function main() {
   console.log("\n  [1/5] Update version...");
   const pkg = readPkg();
   pkg.version = next;
+  if (next.includes("-beta")) {
+    pkg.preview = true;
+  } else {
+    delete pkg.preview;
+  }
   if (!DRY_RUN) {
     writePkg(pkg);
-    console.log(`  Wrote package.json: ${current} -> ${next}`);
+    console.log(`  Wrote package.json: ${current} -> ${next} (preview: ${!!pkg.preview})`);
   }
 
   // -- 2. Build
