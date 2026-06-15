@@ -993,12 +993,10 @@ export class OpenCodeCli {
         try {
           const msgsResult = await this.client!.session.messages({ path: { id: sessionId } });
           const msgs = (msgsResult.data ?? []) as Record<string, unknown>[];
-          this.log(`generateCommitMessage: poll got ${msgs.length} msgs`);
           for (let i = msgs.length - 1; i >= 0; i--) {
             const info = msgs[i].info as Record<string, unknown> | undefined;
             const msgId = (info?.id ?? msgs[i].id) as string;
             const msgParts = (msgs[i].parts ?? []) as Record<string, unknown>[];
-            this.log(`generateCommitMessage: msg[${i}] id=${msgId} parts=${msgParts.length}`);
             if (!msgId) continue;
             // Parts may already contain the text directly
             const inlineText = msgParts
@@ -1013,14 +1011,12 @@ export class OpenCodeCli {
               const detail = await this.client!.session.message({ path: { id: sessionId, messageID: msgId } });
               const data = detail.data as Record<string, unknown> | undefined;
               if (!data) { this.log(`generateCommitMessage: detail[${i}] no data`); continue; }
-              const dataKeys = Object.keys(data).join(",");
               const parts = (data.parts ?? []) as Record<string, unknown>[];
               const textParts = parts.filter((p) => p.type === "text");
               const role = (data.role ?? info?.role) as string;
               const text = textParts.map((p) => p.text as string).join("").trim()
                 || (data.content as string)?.trim()
                 || (data.text as string)?.trim() || "";
-              this.log(`generateCommitMessage: detail[${i}] role=${role} parts=${parts.length} textParts=${textParts.length} textLen=${text.length} keys=${dataKeys}`);
               if (role === "assistant" && text) { response = text; break; }
             } catch (e) {
               this.log(`generateCommitMessage: detail[${i}] error: ${e}`);

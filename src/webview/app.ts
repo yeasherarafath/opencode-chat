@@ -617,6 +617,7 @@ class App {
           const opt = el("div", { className: "model-popup-opt px-3 py-1 text-xs cursor-pointer font-ui transition-colors duration-100 hover:bg-primary/8" + (m === this.state.selectedModel ? " on" : "") }, [txt(m)]);
           opt.onclick = () => {
             this.state.selectedModel = m;
+            vscode.postMessage({ type: "update-model", model: m });
             modelPopup.style.display = "none";
             modelPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (m || "Model") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
           };
@@ -1402,16 +1403,7 @@ class App {
       bubble.appendChild(textEl);
     }
 
-    // pending question card — only show if not already rendered from parts
-    if (role === "assistant" && this.state.pendingQuestion) {
-      const alreadyHasQuestion = parts && (parts as any[]).some((p: any) =>
-        (p.type === "tool" || p.type === "tool_use" || p.type === "tool-call") && p.tool === "question"
-      );
-      if (!alreadyHasQuestion) {
-        const qs = this.state.pendingQuestion.questions as Array<Record<string, unknown>>;
-        if (qs && qs.length) bubble.appendChild(this.renderQuestionCard(qs, false));
-      }
-    }
+
 
     bubbleWrap.appendChild(bubble);
 
@@ -1882,9 +1874,12 @@ class App {
           const sel = getSelections[idx] ? getSelections[idx]() : "";
           const multi = getMultis[idx] ? getMultis[idx]() : "";
           const ans = custom || sel || multi;
-          if (ans) lines.push((idx + 1) + ". " + ans);
+          if (ans) {
+            if (qText) lines.push("Q: " + qText + "\nA: " + ans);
+            else lines.push(ans);
+          }
         });
-        const allText = lines.length ? lines.join("\n") : "Submitted";
+        const allText = lines.length ? lines.join("\n\n") : "Submitted";
         this.answerQuestion(allText);
       };
       wrap.appendChild(okBtn);
@@ -2482,12 +2477,14 @@ class App {
         if (name === "question" || name === "ask") {
           const raw = (event.input as Record<string, unknown>) || {};
           const qArr = raw.questions as Array<Record<string, unknown>> | undefined;
+          const qs = (qArr && qArr.length) ? qArr : [raw];
           this.state.pendingQuestion = {
-            questions: (qArr && qArr.length) ? qArr : [raw],
+            questions: qs,
             messageID: event.messageID as string,
             partID: partId,
           };
-          this.renderMessages();
+          const partsEl = this.ensureStreamingParts();
+          partsEl.appendChild(this.renderQuestionCard(qs, false));
         } else if (name === "task") {
           const inp = (event.input as Record<string, unknown>) || {};
           const desc = (inp.description as string) || "";

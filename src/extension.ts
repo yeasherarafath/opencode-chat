@@ -77,7 +77,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("opencode-chat.refreshModels", () => {
-      provider.newSession();
+      provider.refreshModels();
     })
   );
 

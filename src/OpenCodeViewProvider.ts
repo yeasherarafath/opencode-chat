@@ -214,6 +214,14 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
         case "refresh-models":
           await this.refreshModels().catch((e) => this.log(`refreshModels error: ${e}`));
           break;
+        case "update-model": {
+          const model = message.model as string;
+          if (model) {
+            const cfg = vscode.workspace.getConfiguration("opencode-chat");
+            await cfg.update("defaultModel", model, vscode.ConfigurationTarget.Global);
+          }
+          break;
+        }
         case "install":
           this.log("handleMessage: install");
           vscode.env.openExternal(vscode.Uri.parse(this.cli.getInstallUrl()));
