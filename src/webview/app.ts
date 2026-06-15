@@ -162,16 +162,16 @@ function renderThinkBlock(content: string): HTMLElement {
 function renderMarkdown(text: string): HTMLElement {
   const root = el("div", { className: "md" });
 
-  // Extract <think> blocks, replace with placeholders (permissive: tags may be inline or at EOL)
+  // Extract <think> blocks, replace with span placeholders (DOM-safe, findable via querySelector)
   const thinkBlocks: string[] = [];
-  const cleanText = text.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, (_, content) => {
+  const cleanText = text.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, (_match: string, content: string) => {
     const idx = thinkBlocks.length;
-    thinkBlocks.push(content);
-    return "\n\x00THINK" + idx + "\x00\n";
+    thinkBlocks.push(content.replace(/^\s+|\s+$/g, ""));
+    return '\n<span class="think-placeholder" data-think-idx="' + idx + '"></span>\n';
   });
 
   // Parse markdown to HTML using marked
-  const html = marked.parse(cleanText, { breaks: true, gfm: true });
+  const html = (marked.parse(cleanText, { breaks: true, gfm: true }) as string) || "";
 
   // Convert HTML string to DOM nodes
   const wrapper = document.createElement("div");
@@ -198,17 +198,10 @@ function renderMarkdown(text: string): HTMLElement {
     codeEl.innerHTML = highlightCode(codeText, lang);
   });
 
-  // Replace think block placeholders with actual DOM elements
-  walkTextNodes(wrapper, (node) => {
-    const match = node.textContent?.match(/\x00THINK(\d+)\x00/);
-    if (match) {
-      const parts = node.textContent!.split(/\x00THINK\d+\x00/);
-      const fragment = document.createDocumentFragment();
-      if (parts[0]) fragment.appendChild(document.createTextNode(parts[0]));
-      fragment.appendChild(renderThinkBlock(thinkBlocks[parseInt(match[1])]));
-      if (parts[1]) fragment.appendChild(document.createTextNode(parts[1]));
-      node.parentNode!.replaceChild(fragment, node);
-    }
+  // Replace think block placeholders with actual DOM elements (element query, not TreeWalker)
+  wrapper.querySelectorAll("span.think-placeholder[data-think-idx]").forEach((el) => {
+    const idx = parseInt(el.getAttribute("data-think-idx") || "0", 10);
+    el.replaceWith(renderThinkBlock(thinkBlocks[idx] || ""));
   });
 
   // Move all children to root
@@ -2405,7 +2398,7 @@ class App {
             const extracted: string[] = [];
             finalParts = finalParts.map((p: any) => {
               if ((p.type === "text" || p.type === "content") && typeof p.text === "string") {
-                const cleaned = p.text.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, (_, c: string) => {
+                const cleaned = p.text.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, (_m: string, c: string) => {
                   extracted.push(c);
                   return "";
                 });
