@@ -238,7 +238,7 @@ const SLASH_CMDS = [
   { cmd: "/skills", desc: "Manage skills" },
 ];
 
-interface Session { id: string; title: string; created_at: string; updated_at: string; message_count?: number }
+interface Session { id: string; title: string; slug?: string; created_at: string; updated_at: string; message_count?: number }
 const VARIANTS = ["", "high", "max", "minimal", "medium", "low"];
 function fmtTime(ts: number): string {
   const d = new Date(ts);
@@ -316,6 +316,7 @@ class App {
   private statusText!: HTMLElement;
   private infoBtn!: HTMLElement;
   private tokenDisplayEl!: HTMLElement;
+  private statusSessionText = "";
   private streamingMsgEl: HTMLElement | null = null;
   private streamingContent = "";
   private streamingReasoning = "";
@@ -926,13 +927,13 @@ class App {
   }
 
   private createStatusBar(): HTMLElement {
-    const bar = el("div", { className: "flex items-center gap-1.5 px-3 py-0.5 text-label text-on-surface-variant border-t border-outline-variant shrink-0" });
+    const bar = el("div", { className: "flex items-center gap-1.5 px-3 py-0.5 text-label text-on-surface-variant border-t border-outline-variant shrink-0 overflow-hidden" });
 
-    this.infoBtn = el("button", { className: "bg-transparent border-none text-on-surface-variant cursor-pointer text-sm p-0 leading-none transition-colors duration-150 hover:text-on-surface", title: "Show session state" }, [txt("ⓘ")]);
+    this.infoBtn = el("button", { className: "bg-transparent border-none text-on-surface-variant cursor-pointer text-sm p-0 leading-none transition-colors duration-150 hover:text-on-surface shrink-0", title: "Show session state" }, [txt("ⓘ")]);
     this.infoBtn.onclick = () => this.showStateModal();
 
     this.statusDot = el("span", { className: "dot w-1.5 h-1.5 rounded-full shrink-0 ready" });
-    this.statusText = el("span", { style: "flex:1" }, [txt("Ready")]);
+    this.statusText = el("span", { style: "flex:1", className: "truncate" }, [txt("Ready")]);
     this.tokenDisplayEl = el("span", { className: "shrink-0 text-xs text-on-surface-variant/60 hidden" });
     bar.append(this.infoBtn, this.statusDot, this.statusText, this.tokenDisplayEl);
     return bar;
@@ -940,7 +941,7 @@ class App {
 
   private setStatus(state: "ready" | "busy" | "error", text: string): void {
     this.statusDot.className = "w-1.5 h-1.5 rounded-full shrink-0 " + state;
-    this.statusText.textContent = text;
+    this.statusText.textContent = text + (this.statusSessionText ? " \u00B7 " + this.statusSessionText : "");
   }
 
   private computeTokenTotal(): { tokens: number; cost: number } {
@@ -2051,6 +2052,16 @@ class App {
     this.inputTextarea.focus();
     this.updateRunningState();
     this.setStatus("ready", "Ready");
+    this.updateSessionStatus();
+  }
+
+  private updateSessionStatus(): void {
+    const s = this.state.sessions.find(x => x.id === this.state.currentSessionId);
+    this.statusSessionText = s ? (s.title || s.slug || "") : "";
+    const base = this.statusText.textContent || "";
+    const sepIdx = base.indexOf("\u00B7");
+    const clean = sepIdx > 0 ? base.slice(0, sepIdx).trim() : base.trim();
+    this.statusText.textContent = clean + (this.statusSessionText ? " \u00B7 " + this.statusSessionText : "");
   }
 
   private switchSession(id: string): void {
@@ -2061,6 +2072,7 @@ class App {
     this.state.sessionLoading = true;
     this.pendingSmoothScroll = true;
     this.setStatus("busy", "Loading...");
+    this.updateSessionStatus();
     this.renderMessages();
     vscode.postMessage({ type: "load-messages", sessionId: id });
   }
@@ -2109,6 +2121,7 @@ class App {
           this.state.sessionCount = this.state.sessions.length;
           console.log(`[webview] sessions: got ${this.state.sessions.length} sessions`);
           this.renderSessionList();
+          this.updateSessionStatus();
           break;
         case "models":
           this.state.models = msg.models as string[];
@@ -2183,6 +2196,7 @@ class App {
           this.renderSessionList();
           this.setStatus("ready", "Ready");
           this.updateTokenDisplay();
+          this.updateSessionStatus();
           break;
         case "new-session-ready":
           console.log("[webview] new-session-ready");

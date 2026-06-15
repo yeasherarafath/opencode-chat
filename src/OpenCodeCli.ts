@@ -10,6 +10,7 @@ const spawn: (cmd: string, args: string[], opts?: any) => any = spawn_ as any;
 interface Session {
   id: string;
   title: string;
+  slug?: string;
   projectID: string;
   directory: string;
   parentID?: string;
@@ -83,6 +84,7 @@ interface FileDiff {
 export interface SessionInfo {
   id: string;
   title: string;
+  slug?: string;
   created_at: string;
   updated_at: string;
   message_count?: number;
@@ -102,6 +104,7 @@ function sessionToInfo(s: Session): SessionInfo {
   return {
     id: s.id,
     title: s.title,
+    slug: s.slug,
     created_at: new Date(s.time.created).toISOString(),
     updated_at: new Date(s.time.updated).toISOString(),
   };
