@@ -33,17 +33,9 @@ export async function activate(context: vscode.ExtensionContext) {
   const pureMode = cfg.get<boolean>("pureMode", false);
   cli.setPureMode(pureMode);
 
-  // ----- JsonLogger setup (beta-mode debug capture) -----
+  // ----- JsonLogger setup (opt-in NDJSON debug capture; off by default) -----
   try {
-    const pkg = (context.extension.packageJSON || {}) as { preview?: boolean; version?: string };
-    const betaAuto = pkg.preview === true || /(?:beta|alpha|rc)/i.test(String(pkg.version || ""));
-    const inspected = cfg.inspect<boolean | null>("enableJsonLogs");
-    const explicit =
-      (inspected?.workspaceFolderValue ?? inspected?.workspaceValue ?? inspected?.globalValue) as
-        | boolean
-        | null
-        | undefined;
-    const enabled = explicit === null || explicit === undefined ? betaAuto : !!explicit;
+    const enabled = !!cfg.get<boolean>("enableJsonLogs", false);
     let dir = cfg.get<string>("jsonLogsPath") || "";
     if (!dir) {
       if (workspaceRoot) dir = path.join(workspaceRoot, "logs", "opencode-chat");
@@ -52,9 +44,7 @@ export async function activate(context: vscode.ExtensionContext) {
       dir = path.join(workspaceRoot, dir);
     }
     JsonLogger.init({ enabled, dir, outputChannel });
-    outputChannel.appendLine(
-      `[OpenCode Chat] JsonLogger enabled=${enabled} (betaAuto=${betaAuto}, explicit=${String(explicit)}) dir=${dir}`
-    );
+    outputChannel.appendLine(`[OpenCode Chat] JsonLogger enabled=${enabled} dir=${dir}`);
   } catch (e) {
     outputChannel.appendLine(`[OpenCode Chat] JsonLogger init error: ${e}`);
   }

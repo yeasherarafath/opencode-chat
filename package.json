@@ -108,12 +108,9 @@
           "description": "Polling interval in milliseconds as a fallback for auto-fetch. 0 = SSE only (instant, recommended). >0 = poll session list every N ms. Useful if SSE is unstable or you want explicit control."
         },
         "opencode-chat.enableJsonLogs": {
-          "type": [
-            "boolean",
-            "null"
-          ],
-          "default": null,
-          "description": "Write raw SSE events, dispatched cli events, and webview messages as NDJSON for debugging. Leave as null to auto-enable in beta/preview builds; set to true/false to override."
+          "type": "boolean",
+          "default": false,
+          "description": "Write raw SSE events, dispatched cli events, and webview messages as NDJSON for debugging. Off by default — enable only when troubleshooting."
         },
         "opencode-chat.jsonLogsPath": {
           "type": "string",

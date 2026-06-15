@@ -133,9 +133,15 @@ Type `@` in the input to browse and attach workspace files to your message. You 
 | `opencode-chat.cliPath` | `""` | Path to the opencode CLI binary. Leave empty to auto-detect. |
 | `opencode-chat.defaultModel` | `""` | Default model ID (e.g. `anthropic/claude-sonnet-4-20250514`). Empty = first available. |
 | `opencode-chat.defaultAgent` | `""` | Default agent name (e.g. `plan`, `build`, `review`). Empty = first available. |
-| `opencode-chat.serverPort` | `4096` | Port for the opencode server. |
-| `opencode-chat.serverHostname` | `127.0.0.1` | Hostname to bind the server to. |
-| `opencode-chat.serverTimeout` | `15000` | Max milliseconds to wait for the server to start. |
+| `opencode-chat.serverPort` | `4096` | Port for the opencode server. Change if the default port is already in use. |
+| `opencode-chat.serverHostname` | `127.0.0.1` | Hostname to bind the opencode server to. |
+| `opencode-chat.serverTimeout` | `15000` | Max milliseconds to wait for the opencode server to start. |
+| `opencode-chat.pureMode` | `false` | Run opencode in pure mode (no external plugins). Reduces subprocess count and memory usage. |
+| `opencode-chat.cleanupOnDeactivate` | `true` | Kill the opencode server process tree when VS Code closes or the extension deactivates. Prevents orphaned processes. |
+| `opencode-chat.autoFetchSessions` | `true` | Auto-detect chat sessions created from the opencode CLI and show them in the webview session list. When disabled, only webview-created sessions appear until manual refresh. |
+| `opencode-chat.autoFetchIntervalMs` | `0` | Polling interval in milliseconds as a fallback for auto-fetch. `0` = SSE only (instant, recommended). `>0` = poll session list every N ms. Useful if SSE is unstable or you want explicit control. |
+| `opencode-chat.enableJsonLogs` | `false` | Write raw SSE events, dispatched cli events, and webview messages as NDJSON for debugging. Off by default — enable only when troubleshooting. |
+| `opencode-chat.jsonLogsPath` | `""` | Override directory for JSON debug logs. Leave empty to use `<workspace>/logs/opencode-chat` (or extension globalStorage if no workspace). |
 
 ## Architecture
 
