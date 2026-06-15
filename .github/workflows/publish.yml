@@ -1,0 +1,28 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+      - name: Package VSIX
+        run: npx vsce package -o opencode-ai-chat.vsix
+
+      # - name: Publish to VS Code Marketplace
+      #   run: npx vsce publish --packagePath opencode-ai-chat.vsix -p "${{ secrets.VSCE_PAT }}"
+
+      - name: Publish to Open VSX
+        run: npx ovsx publish opencode-ai-chat.vsix -p "${{ secrets.OPEN_VSX_TOKEN }}"
