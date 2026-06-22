@@ -1249,7 +1249,7 @@ class App {
     if (parts) for (const part of parts as Record<string, unknown>[]) {
       foundParts = true;
       if (part.type === "text" || part.type === "content") {
-        const t = (part as any).text || (part as any).content || "";
+        const t = ((part as any).text || (part as any).content || "").trim();
         if (t) {
           const textEl = el("div", { className: "text" });
           textEl.appendChild(renderMarkdown(t));
@@ -1466,7 +1466,7 @@ class App {
       }
     }
     // fallback: no parts but content exists (old-style messages)
-    if (!foundParts && content) {
+    if (!foundParts && content && content.trim()) {
       const textEl = el("div", { className: "text" });
       textEl.appendChild(renderMarkdown(content));
       bubble.appendChild(textEl);
@@ -2226,7 +2226,7 @@ class App {
                     extracted.push(c);
                     return "";
                   });
-                  return { ...p, text: cleaned };
+                  return { ...p, text: cleaned.trim() };
                 }
                 return p;
               });
@@ -2248,7 +2248,7 @@ class App {
                 .map((p: any) => p.text || p.content || "")
                 .join("\n");
             }
-            content = content.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, "");
+            content = content.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, "").trim();
             const role = (m.role as string) || info.role || "assistant";
             const model = info.modelID || (info.model && info.model.modelID) || "";
             const time = info.time && info.time.created ? Number(info.time.created) : undefined;
@@ -2533,7 +2533,7 @@ class App {
                   extracted.push(c);
                   return "";
                 });
-                return { ...p, text: cleaned };
+                return { ...p, text: cleaned.trim() };
               }
               return p;
             });
@@ -2547,7 +2547,7 @@ class App {
               }
             }
             // also strip think from `text` content field if present
-            text = text.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, "");
+            text = text.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, "").trim();
           }
           // Preserve streamed reasoning if the final parts don't include it
           if (this.streamingReasoning && (!finalParts || !finalParts.some(p => p.type === "reasoning"))) {
