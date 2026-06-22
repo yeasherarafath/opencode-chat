@@ -45,6 +45,7 @@ Compatible with VS Code, VSCodium, Cursor, Windsurf, and any editor supporting t
 - **Slash Commands** — Type `/` to browse and run 15+ built-in commands (help, diff, fork, share, review, sessions, skills, mcps, etc.)
 - **File Attachment** — Attach workspace files via `@` mention menu or attachment icon file picker
 - **Question Prompts** — Interactive question flows for plan/ask workflows with textareas and submit buttons
+- **Generate Commit Message** — Analyze staged (or unstaged) git diff and produce a standardized, conventional commit message (`type(scope): description`) directly into the SCM input box, with a clipboard fallback
 
 ### Display & UI
 - **Markdown Rendering** — Full markdown including tables, lists, headings, code blocks, links, images, and formatting
@@ -187,6 +188,7 @@ Type `@` in the input to browse and attach workspace files to your message. You 
 | `OpenCode Chat: Focus Sidebar` | Open the chat sidebar |
 | `OpenCode Chat: New Session` | Start a new conversation |
 | `OpenCode Chat: Refresh Models` | Refresh the model list |
+| `OpenCode: Generate Commit Message` | Generate a conventional commit message from git diff into the SCM input box |
 
 ### Settings
 
