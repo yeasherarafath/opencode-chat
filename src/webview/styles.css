@@ -74,6 +74,49 @@ body {
 
 #root { display: flex; flex-direction: column; height: 100vh; }
 
+/* ===== Modal (used by Providers / Diff / etc.) ===== */
+.modal {
+  background: var(--surface-container-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: 8px;
+  padding: 16px;
+  min-width: 320px;
+  max-width: min(600px, 90vw);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  color: var(--on-surface);
+}
+.modal.wide {
+  max-width: min(900px, 90vw);
+}
+.modal h3 { margin: 0 0 8px 0; font: var(--font-headline); }
+.modal-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 8px 0;
+}
+.modal .close-btn {
+  background: transparent;
+  color: var(--on-surface-variant);
+  border: 1px solid var(--outline-variant);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: var(--font-label);
+  align-self: flex-end;
+  flex-shrink: 0;
+}
+.modal .close-btn:hover { color: var(--on-surface); }
+.modal .row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  font: var(--font-body);
+}
+.modal .value { color: var(--on-surface); }
+
 /* ===== Agent Mode Bar (dynamic only) ===== */
 .agent-segmented::-webkit-scrollbar { display: none; }
 [data-agent].active {

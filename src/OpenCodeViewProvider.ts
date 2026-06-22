@@ -280,7 +280,6 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
               const newSession = await this.cli.createSession(title);
               this.log(`session-import: created new session ${newSession.id} from imported title`);
               await this.refreshSessions();
-              this.view?.webview.postMessage({ type: "session-created", session: newSession });
               vscode.window.showInformationMessage(`Session imported as "${title}" and added to list`);
             } catch (createErr) {
               const msg = createErr instanceof Error ? createErr.message : String(createErr);

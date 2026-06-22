@@ -583,10 +583,7 @@ class App {
           input.onkeydown = (ev) => { if (ev.key === "Enter") save(); if (ev.key === "Escape") this.renderSessionList(); };
           input.onblur = save;
         };
-        const shareBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "Share" });
-        shareBtn.innerHTML = Share2;
-        shareBtn.onclick = (e) => { e.stopPropagation(); vscode.postMessage({ type: "share-session", sessionId: s.id }); };
-        const diffBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "Show changes" });
+        const diffBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "View diff" });
         diffBtn.innerHTML = GitCompare;
         diffBtn.onclick = (e) => {
           e.stopPropagation();
@@ -596,7 +593,7 @@ class App {
         const delBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-error text-error", title: "Delete" });
         delBtn.innerHTML = Trash2;
         delBtn.onclick = (e) => { e.stopPropagation(); this.deleteSession(s.id); };
-        actions.append(renameBtn, shareBtn, diffBtn, delBtn);
+        actions.append(renameBtn, diffBtn, delBtn);
         item.appendChild(actions);
 
         section.appendChild(item);
