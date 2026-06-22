@@ -13,6 +13,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   private extensionVersion = "";
   private cli: OpenCodeCli;
   private authProxy = new AuthProxy();
+  private openWebGuiPanel: vscode.WebviewPanel | undefined;
 
   constructor(extensionUri: vscode.Uri, cli: OpenCodeCli, extensionVersion: string) {
     this.cli = cli;
@@ -273,6 +274,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
           try {
             const text = await require("fs").promises.readFile(filePath, "utf-8");
             this.view?.webview.postMessage({ type: "session-import-data", json: text });
+            vscode.window.showInformationMessage("Session imported successfully");
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             this.log(`session-import error: ${msg}`);
@@ -296,7 +298,29 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
             }
             const proxyUrl = await this.authProxy.start(targetUrl, "opencode", password);
             this.log(`open-web-gui: proxy=${proxyUrl} target=${targetUrl}`);
-            await vscode.commands.executeCommand("simpleBrowser.show", vscode.Uri.parse(proxyUrl));
+
+            const proxyUri = vscode.Uri.parse(proxyUrl);
+            const panel = vscode.window.createWebviewPanel(
+              "opencodeWebGui",
+              "OpenCode Web GUI",
+              vscode.ViewColumn.Active,
+              {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+                localResourceRoots: [proxyUri],
+              }
+            );
+            panel.iconPath = vscode.Uri.joinPath(this.extensionUri, "media", "icon.png");
+            panel.webview.html = this.buildWebGuiHtml(proxyUrl);
+            panel.webview.onDidReceiveMessage((msg) => {
+              if (msg && msg.type === "navigate" && typeof msg.url === "string") {
+                panel.webview.html = this.buildWebGuiHtml(msg.url);
+              }
+            });
+            this.openWebGuiPanel = panel;
+            panel.onDidDispose(() => {
+              if (this.openWebGuiPanel === panel) this.openWebGuiPanel = undefined;
+            });
           } catch (e) {
             this.log(`open-web-gui error: ${e}`);
             vscode.window.showErrorMessage(`Open web GUI failed: ${e}`);
