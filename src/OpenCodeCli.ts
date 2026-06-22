@@ -480,6 +480,14 @@ export class OpenCodeCli {
     return sessionToInfo(session);
   }
 
+  async createSession(title?: string): Promise<SessionInfo> {
+    if (!this.client) throw new Error("OpenCode client not initialized");
+    const result = await this.client.session.create({
+      body: { title: (title || "Imported session").slice(0, 80) },
+    });
+    return sessionToInfo(result.data!);
+  }
+
   async summarizeSession(id: string, providerID: string, modelID: string): Promise<boolean> {
     const result = await this.client!.session.summarize({
       path: { id },
