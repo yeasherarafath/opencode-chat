@@ -274,16 +274,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
           try {
             const text = await require("fs").promises.readFile(filePath, "utf-8");
             this.view?.webview.postMessage({ type: "session-import-data", json: text });
-            try {
-              await this.cli.runCliCommand(["import", filePath]);
-              this.log(`session-import: registered with server`);
-              await this.refreshSessions();
-              vscode.window.showInformationMessage("Session imported and registered successfully");
-            } catch (cliErr) {
-              const msg = cliErr instanceof Error ? cliErr.message : String(cliErr);
-              this.log(`session-import server registration failed: ${msg}`);
-              vscode.window.showWarningMessage(`Session loaded, but server registration failed: ${msg}`);
-            }
+            vscode.window.showInformationMessage("Session loaded. To register it on the server, run: opencode import " + filePath);
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             this.log(`session-import error: ${msg}`);
