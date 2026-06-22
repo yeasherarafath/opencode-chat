@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { OpenCodeCli } from "./OpenCodeCli";
 import { JsonLogger } from "./JsonLogger";
+import { AuthProxy } from "./AuthProxy";
 
 export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   static readonly viewType = "opencode-chat.chatView";
@@ -11,6 +12,8 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   private opencodeVersion = "";
   private extensionVersion = "";
   private cli: OpenCodeCli;
+  private authProxy = new AuthProxy();
+  private openWebGuiPanel: vscode.WebviewPanel | undefined;
 
   constructor(extensionUri: vscode.Uri, cli: OpenCodeCli, extensionVersion: string) {
     this.cli = cli;
@@ -237,6 +240,122 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
         case "export-to-file": {
           this.log(`handleMessage: export-to-file id=${message.sessionId}`);
           await this.exportToFile(message.sessionId as string).catch((e) => this.log(`exportToFile error: ${e}`));
+          break;
+        }
+        case "session-export": {
+          const sid = message.sessionId as string;
+          this.log(`handleMessage: session-export id=${sid}`);
+          if (!sid) {
+            this.view?.webview.postMessage({ type: "session-import-error", message: "No session selected." });
+            break;
+          }
+          try {
+            const data = await this.cli.exportSession(sid);
+            const json = JSON.stringify(data, null, 2);
+            this.view?.webview.postMessage({ type: "session-export-data", sessionId: sid, json });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            this.log(`session-export error: ${msg}`);
+            this.view?.webview.postMessage({ type: "session-import-error", message: msg });
+          }
+          break;
+        }
+        case "session-import": {
+          this.log("handleMessage: session-import");
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            title: "Import session from JSON file",
+            filters: { "Session JSON": ["json"] },
+          });
+          if (!picked || !picked[0]) { this.log("session-import: cancelled"); break; }
+          const filePath = picked[0].fsPath;
+          try {
+            const text = await require("fs").promises.readFile(filePath, "utf-8");
+            this.view?.webview.postMessage({ type: "session-import-data", json: text });
+            try {
+              const parsed = JSON.parse(text);
+              const title = (typeof parsed?.title === "string" && parsed.title) || "Imported session";
+              const newSession = await this.cli.createSession(title);
+              this.log(`session-import: created new session ${newSession.id} from imported title`);
+              await this.refreshSessions();
+              vscode.window.showInformationMessage(`Session imported as "${title}" and added to list`);
+            } catch (createErr) {
+              const msg = createErr instanceof Error ? createErr.message : String(createErr);
+              this.log(`session-import create failed: ${msg}`);
+              vscode.window.showWarningMessage(`Session loaded, but failed to add to list: ${msg}`);
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            this.log(`session-import error: ${msg}`);
+            this.view?.webview.postMessage({ type: "session-import-error", message: msg });
+          }
+          break;
+        }
+        case "open-web-gui": {
+          this.log("handleMessage: open-web-gui");
+          try {
+            const healthy = await this.cli.ensureServerHealthy();
+            if (!healthy) {
+              vscode.window.showErrorMessage("OpenCode server is not reachable. Try sending a message to start it.");
+              break;
+            }
+            const targetUrl = this.cli.getServerUrl();
+            const password = this.cli.getServerPassword();
+            if (!targetUrl || !password) {
+              vscode.window.showErrorMessage("OpenCode server URL or password is not available.");
+              break;
+            }
+            const proxyUrl = await this.authProxy.start(targetUrl, "opencode", password);
+            this.log(`open-web-gui: proxy=${proxyUrl} target=${targetUrl}`);
+
+            const proxyUri = vscode.Uri.parse(proxyUrl);
+            const panel = vscode.window.createWebviewPanel(
+              "opencodeWebGui",
+              "OpenCode Web GUI",
+              vscode.ViewColumn.Active,
+              {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+                localResourceRoots: [proxyUri],
+              }
+            );
+            panel.iconPath = vscode.Uri.joinPath(this.extensionUri, "media", "icon.png");
+            panel.webview.html = this.buildWebGuiHtml(proxyUrl);
+            panel.webview.onDidReceiveMessage((msg) => {
+              if (msg && msg.type === "navigate" && typeof msg.url === "string") {
+                panel.webview.html = this.buildWebGuiHtml(msg.url);
+              }
+            });
+            this.openWebGuiPanel = panel;
+            panel.onDidDispose(() => {
+              if (this.openWebGuiPanel === panel) this.openWebGuiPanel = undefined;
+            });
+          } catch (e) {
+            this.log(`open-web-gui error: ${e}`);
+            vscode.window.showErrorMessage(`Open web GUI failed: ${e}`);
+          }
+          break;
+        }
+        case "save-json": {
+          const json = (message.json as string) ?? "";
+          const defaultName = (message.defaultName as string) || "session.json";
+          this.log(`handleMessage: save-json len=${json.length} defaultName=${defaultName}`);
+          try {
+            const target = await vscode.window.showSaveDialog({
+              title: "Save session JSON",
+              defaultUri: vscode.Uri.file(defaultName),
+              filters: { "JSON": ["json"] },
+            });
+            if (!target) { this.log("save-json: cancelled"); break; }
+            await require("fs").promises.writeFile(target.fsPath, json, "utf-8");
+            vscode.window.showInformationMessage(`Saved to ${target.fsPath}`);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            this.log(`save-json error: ${msg}`);
+            vscode.window.showErrorMessage(`Save failed: ${msg}`);
+          }
           break;
         }
         case "open-file": {
@@ -654,6 +773,49 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     this.autoFetchConfigSub?.dispose();
     this.configChangeSub?.dispose();
     this.activeEditorSub?.dispose();
+    this.authProxy.stop();
+  }
+
+  private buildWebGuiHtml(proxyUrl: string): string {
+    const escaped = proxyUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src http://127.0.0.1:* ws://127.0.0.1:*; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src http: https: data:; font-src http: https: data:; connect-src http://127.0.0.1:* ws://127.0.0.1:*;">
+<title>OpenCode Web GUI</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: var(--vscode-editor-background, #1e1e1e); }
+  #toolbar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--vscode-titleBar-activeBackground, #2d2d2d); color: var(--vscode-titleBar-activeForeground, #ccc); font: 12px var(--vscode-font-family, sans-serif); border-bottom: 1px solid var(--vscode-widget-border, #444); }
+  #toolbar button { background: transparent; color: inherit; border: 1px solid transparent; padding: 2px 8px; cursor: pointer; border-radius: 2px; font: inherit; }
+  #toolbar button:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); }
+  #url { flex: 1; min-width: 0; background: var(--vscode-input-background, #1e1e1e); color: var(--vscode-input-foreground, #ccc); border: 1px solid var(--vscode-input-border, #444); padding: 2px 6px; font: inherit; border-radius: 2px; }
+  iframe { width: 100%; height: calc(100% - 28px); border: none; display: block; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <button id="back" title="Back">◀</button>
+  <button id="forward" title="Forward">▶</button>
+  <button id="reload" title="Reload">⟳</button>
+  <input id="url" type="text" value="${escaped}" />
+  <button id="go" title="Go">Go</button>
+</div>
+<iframe id="frame" src="${escaped}"></iframe>
+<script>
+  const vscode = acquireVsCodeApi();
+  const frame = document.getElementById('frame');
+  const urlInput = document.getElementById('url');
+  document.getElementById('reload').onclick = () => { frame.src = frame.src; };
+  document.getElementById('back').onclick = () => { history.back(); };
+  document.getElementById('forward').onclick = () => { history.forward(); };
+  document.getElementById('go').onclick = () => { const u = urlInput.value.trim(); if (u) frame.src = u; };
+  urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const u = urlInput.value.trim(); if (u) frame.src = u; } });
+  let lastUrl = frame.src;
+  setInterval(() => { try { const cur = frame.contentWindow.location.href; if (cur && cur !== lastUrl && cur !== 'about:blank') { lastUrl = cur; urlInput.value = cur; vscode.postMessage({ type: 'navigate', url: cur }); } } catch (_) {} }, 500);
+</script>
+</body>
+</html>`;
   }
 
   private getHtml(webview: vscode.Webview): string {

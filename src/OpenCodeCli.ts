@@ -123,6 +123,7 @@ export class OpenCodeCli {
   private serverTimeout = 15000;
   private pureMode = false;
   private serverProc: { pid: number; kill(): void } | null = null;
+  private serverPassword = "";
   private cwd = "";
 
   static setOutputChannel(ch: import("vscode").OutputChannel): void {
@@ -164,22 +165,26 @@ export class OpenCodeCli {
     this.log(`resolveBinary: binaryPath=${this.binaryPath}`);
     const candidates: string[] = [this.binaryPath];
 
-    // add common platform-specific names
     if (this.binaryPath === "opencode") {
-      candidates.push("opencode.exe", "opencode.cmd");
-      // try npm global paths (common issue on Windows)
       const npmDir = path.join(os.homedir(), "AppData", "Roaming", "npm");
-      candidates.push(
-        path.join(npmDir, "opencode"),
-        path.join(npmDir, "opencode.cmd"),
-        path.join(npmDir, "opencode.exe"),
-      );
-      // also check LOCALAPPDATA
       const localNpmDir = path.join(os.homedir(), "AppData", "Local", "npm");
+      const isWin = os.platform() === "win32";
+      if (isWin) {
+        candidates.push(
+          path.join(npmDir, "opencode.cmd"),
+          path.join(npmDir, "opencode.exe"),
+          path.join(npmDir, "opencode.bat"),
+          path.join(localNpmDir, "opencode.cmd"),
+          path.join(localNpmDir, "opencode.exe"),
+          path.join(localNpmDir, "opencode.bat"),
+        );
+      }
       candidates.push(
+        "opencode.exe",
+        "opencode.cmd",
+        "opencode",
+        path.join(npmDir, "opencode"),
         path.join(localNpmDir, "opencode"),
-        path.join(localNpmDir, "opencode.cmd"),
-        path.join(localNpmDir, "opencode.exe"),
       );
     }
 
@@ -210,10 +215,10 @@ export class OpenCodeCli {
         });
       });
       if (output && !output.includes("Could not find") && !output.includes("not found")) {
-        const p = output.trim();
-        this.log(`resolveBinary: shell found binary at ${p}`);
-        this.binaryPath = p;
-        return p;
+        const resolved = this.ensureExecutableExtension(output.trim());
+        this.log(`resolveBinary: shell found binary at ${resolved}`);
+        this.binaryPath = resolved;
+        return resolved;
       }
     } catch {
       this.log("resolveBinary: shell lookup failed");
@@ -228,7 +233,8 @@ export class OpenCodeCli {
     const timeout = this.serverTimeout;
 
     // strategy 1: spawn serve manually via cross-spawn
-    const serverPassword = Math.random().toString(36).slice(2, 10);
+    this.serverPassword = Math.random().toString(36).slice(2, 10);
+    const serverPassword = this.serverPassword;
     const binary = this.binaryPath !== "opencode" ? this.binaryPath : await this.resolveBinary();
     if (binary) {
       try {
@@ -301,6 +307,7 @@ export class OpenCodeCli {
     this.serverInstance = null;
     this.client = null;
     this.serverUrl = "";
+    this.serverPassword = "";
 
     // tree-kill the server process (kills children like MCP, LSP too)
     if (this.serverProc) {
@@ -434,6 +441,14 @@ export class OpenCodeCli {
     return "https://opencode.ai/install";
   }
 
+  getServerUrl(): string {
+    return this.serverUrl;
+  }
+
+  getServerPassword(): string {
+    return this.serverPassword;
+  }
+
   async listSessions(maxCount = 50): Promise<SessionInfo[]> {
     const result = await this.client!.session.list();
     const sessions: Session[] = result.data ?? [];
@@ -463,6 +478,14 @@ export class OpenCodeCli {
     });
     const session: Session = result.data!;
     return sessionToInfo(session);
+  }
+
+  async createSession(title?: string): Promise<SessionInfo> {
+    if (!this.client) throw new Error("OpenCode client not initialized");
+    const result = await this.client.session.create({
+      body: { title: (title || "Imported session").slice(0, 80) },
+    });
+    return sessionToInfo(result.data!);
   }
 
   async summarizeSession(id: string, providerID: string, modelID: string): Promise<boolean> {
@@ -952,18 +975,46 @@ export class OpenCodeCli {
 
   async runCliCommand(args: string[]): Promise<string> {
     JsonLogger.log("meta", { event: "runCliCommand-start", args });
-    const { execFile } = await import("child_process");
+    const binary = this.binaryPath !== "opencode" ? this.binaryPath : await this.resolveBinary();
+    if (!binary) {
+      throw new Error("opencode binary not found. Set 'opencode-chat.cliPath' in settings or ensure 'opencode' is on PATH.");
+    }
+    const finalBinary = this.ensureExecutableExtension(binary);
     return new Promise((resolve, reject) => {
-      execFile("opencode", args, { cwd: this.cwd || process.cwd(), maxBuffer: 10 * 1024 * 1024, timeout: 30000 }, (err, stdout, stderr) => {
-        if (err) {
-          JsonLogger.log("error", { source: "runCliCommand", args, error: err.message, stderr: stderr?.slice(0, 2000) });
-          reject(new Error(stderr.trim() || err.message));
+      const child = spawn_(finalBinary, args, { cwd: this.cwd || process.cwd() });
+      let stdout = "";
+      let stderr = "";
+      const timer = setTimeout(() => {
+        child.kill();
+        reject(new Error(`opencode ${args.join(" ")} timed out after 30000ms`));
+      }, 30000);
+      child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+      child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+      child.on("error", (e: Error) => {
+        clearTimeout(timer);
+        JsonLogger.log("error", { source: "runCliCommand", args, error: e.message, stderr: stderr.slice(0, 2000) });
+        reject(new Error(stderr.trim() || e.message));
+      });
+      child.on("close", (code: number | null) => {
+        clearTimeout(timer);
+        if (code !== 0) {
+          JsonLogger.log("error", { source: "runCliCommand", args, code, stderr: stderr.slice(0, 2000) });
+          reject(new Error(stderr.trim() || `opencode exited with code ${code}`));
         } else {
           JsonLogger.log("meta", { event: "runCliCommand-done", args, stdoutLen: stdout.length });
           resolve(stdout.trim());
         }
       });
     });
+  }
+
+  private ensureExecutableExtension(bin: string): string {
+    if (os.platform() !== "win32") return bin;
+    if (/\.(exe|cmd|bat)$/i.test(bin)) return bin;
+    if (fs.existsSync(bin + ".cmd")) return bin + ".cmd";
+    if (fs.existsSync(bin + ".exe")) return bin + ".exe";
+    if (fs.existsSync(bin + ".bat")) return bin + ".bat";
+    return bin;
   }
 
   async generateCommitMessage(diff: string): Promise<string> {

@@ -28,10 +28,11 @@ Compatible with VS Code, VSCodium, Cursor, Windsurf, and any editor supporting t
 - **Search Sessions** — Filter sessions by name or content via the search input
 - **Rename** — Rename any session inline
 - **Fork** — Fork a session to branch off a new conversation
-- **Share** — Share sessions with others
 - **Diff** — View session file changes inline with add/delete stats
 - **Summarize** — Compact session history
-- **Export** — Export any session as JSON
+- **Export** — Export any session as JSON; save the file with the modal's built-in Save button or copy to clipboard
+- **Import** — Pick a session JSON file; the contents are shown in a viewer and a new session with the imported title is added to the list
+- **Open Web GUI** — Launch the opencode web UI in a custom editor tab (with auth handled transparently)
 - **Delete** — Remove unwanted sessions
 - **New Chat** — Start fresh conversations with a single click
 
@@ -42,7 +43,7 @@ Compatible with VS Code, VSCodium, Cursor, Windsurf, and any editor supporting t
 - **Fork from Message** — Fork a session starting from a specific message
 
 ### Commands & Input
-- **Slash Commands** — Type `/` to browse and run 15+ built-in commands (help, diff, fork, share, review, sessions, skills, mcps, etc.)
+- **Slash Commands** — Type `/` to browse and run 15+ built-in commands (help, diff, fork, share, review, sessions, skills, mcps, import, etc.)
 - **File Attachment** — Attach workspace files via `@` mention menu or attachment icon file picker
 - **Question Prompts** — Interactive question flows for plan/ask workflows with textareas and submit buttons
 - **Generate Commit Message** — Analyze staged (or unstaged) git diff and produce a standardized, conventional commit message (`type(scope): description`) directly into the SCM input box, with a clipboard fallback
@@ -80,7 +81,10 @@ Beyond the feature list, here's what makes this extension feel different to use.
 ### Sessions follow you everywhere
 - **Auto-discovery across the opencode ecosystem** — start a chat in the CLI, TUI, or web, and it shows up in the sidebar instantly.
 - **No spam refreshes** — bulk imports are collapsed into a single update, so the list stays calm.
-- **Today / Yesterday / Earlier grouping** with a quick search box, plus inline Rename, Share, Diff, Fork, Summarize, Export, and Delete on every row.
+- **Today / Yesterday / Earlier grouping** with a quick search box, plus inline Rename, Diff, Fork, Summarize, Delete, and an Export on every row.
+- **One-click export** — any session becomes a portable JSON file with a built-in Save dialog and copy-to-clipboard.
+- **Import any session JSON** — pick a file, the title is read from the JSON, and a new session appears in your list ready to continue.
+- **Open the full web GUI in-editor** — the Globe icon launches the opencode web UI in a custom editor tab; an auth-injecting proxy handles the server's Basic auth behind the scenes so the UI loads without manual login.
 
 ### Just works on Windows, Mac, and Linux
 - **Smart binary detection** — finds the `opencode` CLI whether it lives in `PATH`, in the npm global folder, or anywhere you point it via settings. No more "command not found" on fresh Windows installs.
@@ -162,11 +166,11 @@ Type `/` in the input to browse available commands:
 | `/export` | Export session transcript |
 | `/fork` | Fork session |
 | `/help` | Show help |
+| `/import` | Import session from a JSON file |
 | `/init` | Initialize project analysis |
 | `/mcps` | Manage MCP servers |
 | `/review` | Review changes |
 | `/sessions` | List and switch sessions |
-| `/share` | Share session |
 | `/skills` | Manage skills |
 
 ### File Attachment
@@ -175,11 +179,15 @@ Type `@` in the input to browse and attach workspace files to your message. You 
 
 ### Session Management
 
-- Click the **Chat Sessions** button in the header or the clipboard icon to toggle the session list
-- Hover over a session to reveal actions: Rename, Share, Diff, Delete
+- Click the **History** (clock) icon in the header to toggle the session list
+- The header also has a context-aware **Import / Export** icon: when a session is selected it exports that session; when no session is selected it opens the import file picker
+- The **Globe** icon opens the opencode web UI in a custom editor tab
+- Hover over a session to reveal actions: Rename, Diff, Delete
 - Use the search box above the session list to filter by name
 - Click **New Chat** to start a fresh conversation
 - Sessions are grouped by Today, Yesterday, and Earlier
+- Run `/import` from the input box to pick a session JSON file
+- Run `/export` from the input box to export the current session
 
 ### Commands
 
@@ -216,11 +224,14 @@ src/
   extension.ts              # Extension entry point & activation
   OpenCodeCli.ts            # CLI subprocess wrapper & SDK client
   OpenCodeViewProvider.ts   # Webview provider & message relaying
+  AuthProxy.ts              # Localhost proxy that injects Basic auth for the web GUI panel
   webview/
     app.ts                  # Chat UI (Vanilla TypeScript + Tailwind CSS)
 ```
 
 The webview is built with vanilla TypeScript and Tailwind CSS — no framework dependencies. Markdown rendering and syntax highlighting are implemented from scratch for a lightweight footprint.
+
+The optional **Open Web GUI** panel runs the opencode web UI inside an `iframe` inside a custom `WebviewPanel`. Because the opencode server requires Basic auth on every request, `AuthProxy` listens on a free local port and forwards all HTTP requests and WebSocket upgrades to the real server, adding the `Authorization: Basic` header on the way out. The webview only ever talks to the proxy, so the GUI loads without a manual login step.
 
 ## Development
 

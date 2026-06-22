@@ -5,10 +5,10 @@ const vscode = acquireVsCodeApi();
 
 import {
   AlertTriangle, Archive, ArrowUp, Bot, Camera, Check, CheckCircle,
-  ChevronDown, ChevronUp, Circle, Clock, Copy, File, GitBranch,
-  GitCompare, GitPullRequest, Headphones, Image, Info, Lightbulb,
+  ChevronDown, ChevronUp, Circle, Clock, Copy, Download, File, GitBranch,
+  GitCompare, GitPullRequest, Globe, Headphones, Image, Info, Lightbulb,
   Loader2, MessageSquare, Paperclip, Pencil, Play, Plus, RefreshCw,
-  RotateCcw, Settings, Share2, Square, Trash2, User, Video, Wrench, X,
+  RotateCcw, Settings, Square, Trash2, Upload, User, Video, Wrench, X,
   XCircle,
 } from "lucide-static";
 import { marked } from "marked";
@@ -230,6 +230,7 @@ const SLASH_CMDS = [
   { cmd: "/export", desc: "Export session transcript" },
   { cmd: "/fork", desc: "Fork session" },
   { cmd: "/help", desc: "Show help" },
+  { cmd: "/import", desc: "Import session from JSON/URL" },
   { cmd: "/init", desc: "Initialize project analysis" },
   { cmd: "/mcps", desc: "Manage MCP servers" },
   { cmd: "/review", desc: "Review changes [commit|branch|pr]" },
@@ -312,6 +313,9 @@ class App {
   private sendBtn!: HTMLButtonElement;
   private abortBtn!: HTMLButtonElement;
   private variantPopup!: HTMLElement;
+  private modelPill!: HTMLElement;
+  private modelPopup!: HTMLElement;
+  private variantPill!: HTMLElement;
   private statusDot!: HTMLElement;
   private statusText!: HTMLElement;
   private infoBtn!: HTMLElement;
@@ -333,6 +337,7 @@ class App {
   private slashMenuEl!: HTMLElement;
   private sessionSearchInput!: HTMLInputElement;
   private sessionListEl!: HTMLElement;
+  private ioBtn!: HTMLButtonElement;
   private atMenuEl!: HTMLElement;
   private fileChipsEl!: HTMLElement;
   private activeFile = "";
@@ -429,18 +434,18 @@ class App {
     hdr.appendChild(left);
 
     const right = el("div", { className: "flex items-center gap-1" });
-    const sessBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Toggle sessions" });
-    sessBtn.innerHTML = "Chat Sessions <span style='font-size:10px'>▼</span>";
-    sessBtn.onclick = () => {
-      this.state.showSessions = !this.state.showSessions;
-      this.sessionsPanel.classList.toggle("hidden", !this.state.showSessions);
-      sessBtn.querySelector("span")!.textContent = this.state.showSessions ? "▲" : "▼";
-    };
-    right.appendChild(sessBtn);
     const histBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "History" });
     histBtn.innerHTML = "<span class='icon'>" + Clock + "</span>";
     histBtn.onclick = () => { this.state.showSessions = !this.state.showSessions; this.sessionsPanel.classList.toggle("hidden"); };
     right.appendChild(histBtn);
+    this.ioBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Import session" });
+    this.ioBtn.onclick = () => this.handleIoBtn();
+    this.updateIoBtn();
+    right.appendChild(this.ioBtn);
+    const globeBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Open OpenCode web GUI" });
+    globeBtn.innerHTML = "<span class='icon'>" + Globe + "</span>";
+    globeBtn.onclick = () => { vscode.postMessage({ type: "open-web-gui" }); };
+    right.appendChild(globeBtn);
     const providersBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Providers" });
     providersBtn.innerHTML = Settings;
     providersBtn.onclick = () => {
@@ -450,6 +455,26 @@ class App {
     right.appendChild(providersBtn);
     hdr.appendChild(right);
     return hdr;
+  }
+
+  private updateIoBtn(): void {
+    if (!this.ioBtn) return;
+    const sid = this.state.currentSessionId;
+    if (sid) {
+      this.ioBtn.innerHTML = "<span class='icon'>" + Download + "</span>";
+      this.ioBtn.title = "Export current session";
+    } else {
+      this.ioBtn.innerHTML = "<span class='icon'>" + Upload + "</span>";
+      this.ioBtn.title = "Import session from JSON/URL";
+    }
+  }
+
+  private handleIoBtn(): void {
+    if (this.state.currentSessionId) {
+      vscode.postMessage({ type: "session-export", sessionId: this.state.currentSessionId });
+    } else {
+      vscode.postMessage({ type: "session-import" });
+    }
   }
 
   private createAgentBar(): HTMLElement {
@@ -558,10 +583,7 @@ class App {
           input.onkeydown = (ev) => { if (ev.key === "Enter") save(); if (ev.key === "Escape") this.renderSessionList(); };
           input.onblur = save;
         };
-        const shareBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "Share" });
-        shareBtn.innerHTML = Share2;
-        shareBtn.onclick = (e) => { e.stopPropagation(); vscode.postMessage({ type: "share-session", sessionId: s.id }); };
-        const diffBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "Show changes" });
+        const diffBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-primary", title: "View diff" });
         diffBtn.innerHTML = GitCompare;
         diffBtn.onclick = (e) => {
           e.stopPropagation();
@@ -571,7 +593,7 @@ class App {
         const delBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-xs px-1.5 py-0.5 rounded-sm transition-all duration-150 text-on-surface-variant hover:text-error text-error", title: "Delete" });
         delBtn.innerHTML = Trash2;
         delBtn.onclick = (e) => { e.stopPropagation(); this.deleteSession(s.id); };
-        actions.append(renameBtn, shareBtn, diffBtn, delBtn);
+        actions.append(renameBtn, diffBtn, delBtn);
         item.appendChild(actions);
 
         section.appendChild(item);
@@ -591,8 +613,10 @@ class App {
 
     const inputToolbar = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant" });
     const modelPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Selected model", "data-part": "model-pill" });
+    this.modelPill = modelPill;
     modelPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedModel || "Model") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
     const modelPopup = el("div", { className: "absolute bottom-full left-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[220px] z-100 shadow-lg" });
+    this.modelPopup = modelPopup;
     modelPopup.style.maxHeight = "260px";
     modelPopup.style.display = "none";
     modelPopup.style.overflowY = "auto";
@@ -636,15 +660,12 @@ class App {
     };
     modelSearch.oninput = () => renderModelList(modelSearch.value.toLowerCase());
     modelSearch.onkeydown = (e) => { if (e.key === "Escape") modelPopup.style.display = "none"; };
-    document.addEventListener("click", (e) => {
-      if (!modelPill.contains(e.target as Node) && !modelPopup.contains(e.target as Node))
-        modelPopup.style.display = "none";
-    });
     inputToolbar.style.position = "relative";
     inputToolbar.appendChild(modelPill);
     inputToolbar.appendChild(modelPopup);
 
     const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Variant", "data-part": "variant-pill" });
+    this.variantPill = variantPill;
     variantPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedVariant || "Balanced") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
     this.variantPopup = el("div", { className: "absolute bottom-full right-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[120px] z-100 shadow-lg" });
     this.variantPopup.style.display = "none";
@@ -663,16 +684,6 @@ class App {
     variantPill.onclick = () => {
       this.variantPopup.style.display = this.variantPopup.style.display === "none" ? "block" : "none";
     };
-    document.addEventListener("click", (e) => {
-      if (!variantPill.contains(e.target as Node) && !this.variantPopup.contains(e.target as Node))
-        this.variantPopup.style.display = "none";
-    });
-    document.addEventListener("click", (e) => {
-      if (!this.inputTextarea.contains(e.target as Node) && !this.atMenuEl.contains(e.target as Node) && !this.slashMenuEl.contains(e.target as Node)) {
-        this.hideAtMenu();
-        this.hideSlashMenu();
-      }
-    });
     inputToolbar.appendChild(variantPill);
     inputToolbar.appendChild(this.variantPopup);
 
@@ -1101,6 +1112,64 @@ class App {
     this.overlayEl.onclick = (e) => {
       if (e.target === this.overlayEl) this.overlayEl.classList.add("hidden");
     };
+  }
+
+  private showJsonViewerModal(title: string, json: string, defaultName?: string, mode: "export" | "import" = "export"): void {
+    this.overlayEl.innerHTML = "";
+    this.overlayEl.classList.remove("hidden");
+
+    const vh = window.innerHeight || 600;
+    const modalHeight = Math.round(vh * 0.6);
+
+    const modal = el("div", { className: "z-[250] flex flex-col gap-3 p-4 bg-surface-container-low border border-outline-variant rounded-lg overflow-hidden" });
+    modal.style.position = "fixed";
+    modal.style.top = "50%";
+    modal.style.left = "50%";
+    modal.style.transform = "translate(-50%, -50%)";
+    modal.style.width = "min(900px, 90vw)";
+    modal.style.height = modalHeight + "px";
+    modal.style.maxHeight = modalHeight + "px";
+
+    const header = el("div", { className: "flex items-center justify-between gap-2 shrink-0" });
+    const titleEl = el("h3", { className: "text-headline m-0 flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap", title: title }, [txt(title)]);
+    header.appendChild(titleEl);
+    const xBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant text-base p-0 leading-none transition-colors duration-150 hover:text-on-surface shrink-0", title: "Close" }, [txt("✕")]);
+    xBtn.onclick = () => this.overlayEl.classList.add("hidden");
+    header.appendChild(xBtn);
+    modal.appendChild(header);
+
+    const pre = el("pre", { className: "font-mono text-xs text-on-surface bg-surface-dim border border-outline-variant rounded-md p-3 m-0 overflow-auto whitespace-pre-wrap break-all" });
+    pre.style.flex = "1 1 0%";
+    pre.style.minHeight = "0";
+    pre.textContent = json;
+    modal.appendChild(pre);
+
+    const footer = el("div", { className: "flex items-center justify-end gap-2 shrink-0" });
+    if (mode === "export") {
+      const saveBtn = el("button", { className: "bg-primary text-on-primary border-none py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85" }, [txt("Save")]);
+      saveBtn.onclick = () => { vscode.postMessage({ type: "save-json", json, defaultName: defaultName || "session.json" }); };
+      footer.appendChild(saveBtn);
+      const copyBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Copy")]);
+      copyBtn.onclick = () => { navigator.clipboard.writeText(json).catch(() => {}); };
+      footer.appendChild(copyBtn);
+    }
+    const closeBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Close")]);
+    closeBtn.onclick = () => this.overlayEl.classList.add("hidden");
+    footer.appendChild(closeBtn);
+    modal.appendChild(footer);
+
+    this.overlayEl.appendChild(modal);
+    this.overlayEl.onclick = (e) => {
+      if (e.target === this.overlayEl) this.overlayEl.classList.add("hidden");
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        this.overlayEl.classList.add("hidden");
+        document.removeEventListener("keydown", onKey);
+      }
+    };
+    document.addEventListener("keydown", onKey);
   }
 
   private renderMessages(): void {
@@ -1989,6 +2058,15 @@ class App {
     this.inputTextarea.style.height = "auto";
     const isSlash = raw.startsWith("/");
 
+    if (raw === "/import") {
+      vscode.postMessage({ type: "session-import" });
+      return;
+    }
+    if (raw === "/export" && this.state.currentSessionId) {
+      vscode.postMessage({ type: "session-export", sessionId: this.state.currentSessionId });
+      return;
+    }
+
     // collect file refs, build display text (with @refs) and prompt text (without @refs)
     const fileRefs: string[] = [];
     let displayText = raw;
@@ -2046,6 +2124,7 @@ class App {
     this.updateRunningState();
     this.setStatus("ready", "Ready");
     this.updateSessionStatus();
+    this.updateIoBtn();
   }
 
   private updateSessionStatus(): void {
@@ -2067,6 +2146,7 @@ class App {
     this.setStatus("busy", "Loading...");
     this.updateSessionStatus();
     this.renderMessages();
+    this.updateIoBtn();
     vscode.postMessage({ type: "load-messages", sessionId: id });
   }
 
@@ -2133,6 +2213,7 @@ class App {
         case "session-loaded":
           this.state.currentSessionId = msg.sessionId as string;
           this.state.sessionLoading = false;
+          this.updateIoBtn();
           const raw = msg.messages as Record<string, unknown>[];
           this.state.messages = raw.map((m) => {
             const info = (m as any).info || {};
@@ -2263,6 +2344,7 @@ class App {
         case "session-id":
           console.log(`[webview] session-id: ${msg.sessionId}`);
           this.state.currentSessionId = msg.sessionId as string;
+          this.updateIoBtn();
           break;
         case "aborted":
           console.log("[webview] aborted");
@@ -2352,6 +2434,22 @@ class App {
         case "session-summarized":
           console.log(`[webview] session-summarized: id=${msg.sessionId}`);
           break;
+        case "session-export-data": {
+          const sid = (msg.sessionId as string) || "";
+          const json = (msg.json as string) || "";
+          const shortId = sid ? sid.slice(0, 8) : "";
+          this.showJsonViewerModal(shortId ? "Exported session · " + shortId : "Exported session", json, sid ? "session-" + sid.slice(0, 12) + ".json" : "session.json");
+          break;
+        }
+        case "session-import-data": {
+          const json = (msg.json as string) || "{}";
+          this.showJsonViewerModal("Imported session", json, "imported-session.json", "import");
+          break;
+        }
+        case "session-import-error": {
+          this.setStatus("error", "Import failed: " + (msg.message || "unknown error"));
+          break;
+        }
         case "session-diff":
           console.log(`[webview] session-diff: ${(msg.diff as any[])?.length} files`);
           if (this.pendingDiffResolve) {
@@ -2685,6 +2783,23 @@ class App {
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
         e.preventDefault();
         this.toggleSearch();
+      }
+    });
+    document.addEventListener("click", (e) => {
+      if (!this.modelPill || !this.modelPopup) return;
+      if (!this.modelPill.contains(e.target as Node) && !this.modelPopup.contains(e.target as Node))
+        this.modelPopup.style.display = "none";
+    });
+    document.addEventListener("click", (e) => {
+      if (!this.variantPill || !this.variantPopup) return;
+      if (!this.variantPill.contains(e.target as Node) && !this.variantPopup.contains(e.target as Node))
+        this.variantPopup.style.display = "none";
+    });
+    document.addEventListener("click", (e) => {
+      if (!this.inputTextarea || !this.atMenuEl || !this.slashMenuEl) return;
+      if (!this.inputTextarea.contains(e.target as Node) && !this.atMenuEl.contains(e.target as Node) && !this.slashMenuEl.contains(e.target as Node)) {
+        this.hideAtMenu();
+        this.hideSlashMenu();
       }
     });
     console.log("[webview] listener attached");
