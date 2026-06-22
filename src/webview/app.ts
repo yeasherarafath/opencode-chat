@@ -1117,11 +1117,22 @@ class App {
     };
   }
 
-  private showJsonViewerModal(title: string, json: string, defaultName?: string): void {
+  private showJsonViewerModal(title: string, json: string, defaultName?: string, mode: "export" | "import" = "export"): void {
     this.overlayEl.innerHTML = "";
     this.overlayEl.classList.remove("hidden");
 
-    const modal = el("div", { className: "bg-surface-container-low border border-outline-variant rounded-lg p-4 flex flex-col gap-3 w-[min(900px,90vw)] max-h-[85vh] overflow-hidden" });
+    const vh = window.innerHeight || 600;
+    const modalHeight = Math.round(vh * 0.6);
+
+    const modal = el("div", { className: "z-[250] flex flex-col gap-3 p-4 bg-surface-container-low border border-outline-variant rounded-lg overflow-hidden" });
+    modal.style.position = "fixed";
+    modal.style.top = "50%";
+    modal.style.left = "50%";
+    modal.style.transform = "translate(-50%, -50%)";
+    modal.style.width = "min(900px, 90vw)";
+    modal.style.height = modalHeight + "px";
+    modal.style.maxHeight = modalHeight + "px";
+
     const header = el("div", { className: "flex items-center justify-between gap-2 shrink-0" });
     const titleEl = el("h3", { className: "text-headline m-0 flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap", title: title }, [txt(title)]);
     header.appendChild(titleEl);
@@ -1130,17 +1141,21 @@ class App {
     header.appendChild(xBtn);
     modal.appendChild(header);
 
-    const pre = el("pre", { className: "font-mono text-xs text-on-surface bg-surface-dim border border-outline-variant rounded-md p-3 m-0 overflow-auto flex-1 min-h-0 max-h-[60vh] whitespace-pre-wrap break-all" });
+    const pre = el("pre", { className: "font-mono text-xs text-on-surface bg-surface-dim border border-outline-variant rounded-md p-3 m-0 overflow-auto whitespace-pre-wrap break-all" });
+    pre.style.flex = "1 1 0%";
+    pre.style.minHeight = "0";
     pre.textContent = json;
     modal.appendChild(pre);
 
     const footer = el("div", { className: "flex items-center justify-end gap-2 shrink-0" });
-    const saveBtn = el("button", { className: "bg-primary text-on-primary border-none py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85" }, [txt("Save")]);
-    saveBtn.onclick = () => { vscode.postMessage({ type: "save-json", json, defaultName: defaultName || "session.json" }); };
-    footer.appendChild(saveBtn);
-    const copyBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Copy")]);
-    copyBtn.onclick = () => { vscode.postMessage({ type: "copy-text", text: json }); };
-    footer.appendChild(copyBtn);
+    if (mode === "export") {
+      const saveBtn = el("button", { className: "bg-primary text-on-primary border-none py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85" }, [txt("Save")]);
+      saveBtn.onclick = () => { vscode.postMessage({ type: "save-json", json, defaultName: defaultName || "session.json" }); };
+      footer.appendChild(saveBtn);
+      const copyBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Copy")]);
+      copyBtn.onclick = () => { navigator.clipboard.writeText(json).catch(() => {}); };
+      footer.appendChild(copyBtn);
+    }
     const closeBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Close")]);
     closeBtn.onclick = () => this.overlayEl.classList.add("hidden");
     footer.appendChild(closeBtn);
@@ -2431,7 +2446,7 @@ class App {
         }
         case "session-import-data": {
           const json = (msg.json as string) || "{}";
-          this.showJsonViewerModal("Imported session", json, "imported-session.json");
+          this.showJsonViewerModal("Imported session", json, "imported-session.json", "import");
           break;
         }
         case "session-import-error": {
