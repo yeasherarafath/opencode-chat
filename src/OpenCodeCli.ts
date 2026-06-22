@@ -123,6 +123,7 @@ export class OpenCodeCli {
   private serverTimeout = 15000;
   private pureMode = false;
   private serverProc: { pid: number; kill(): void } | null = null;
+  private serverPassword = "";
   private cwd = "";
 
   static setOutputChannel(ch: import("vscode").OutputChannel): void {
@@ -228,7 +229,8 @@ export class OpenCodeCli {
     const timeout = this.serverTimeout;
 
     // strategy 1: spawn serve manually via cross-spawn
-    const serverPassword = Math.random().toString(36).slice(2, 10);
+    this.serverPassword = Math.random().toString(36).slice(2, 10);
+    const serverPassword = this.serverPassword;
     const binary = this.binaryPath !== "opencode" ? this.binaryPath : await this.resolveBinary();
     if (binary) {
       try {
@@ -301,6 +303,7 @@ export class OpenCodeCli {
     this.serverInstance = null;
     this.client = null;
     this.serverUrl = "";
+    this.serverPassword = "";
 
     // tree-kill the server process (kills children like MCP, LSP too)
     if (this.serverProc) {
@@ -436,6 +439,10 @@ export class OpenCodeCli {
 
   getServerUrl(): string {
     return this.serverUrl;
+  }
+
+  getServerPassword(): string {
+    return this.serverPassword;
   }
 
   async listSessions(maxCount = 50): Promise<SessionInfo[]> {

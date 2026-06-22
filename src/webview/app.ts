@@ -1121,19 +1121,20 @@ class App {
     this.overlayEl.innerHTML = "";
     this.overlayEl.classList.remove("hidden");
 
-    const modal = el("div", { className: "bg-surface-container-low border border-outline-variant rounded-lg p-5 flex flex-col gap-3 w-[min(900px,90vw)] max-h-[80vh]" });
-    const header = el("div", { className: "flex items-center justify-between gap-3" });
-    header.appendChild(el("h3", { className: "text-headline m-0" }, [txt(title)]));
-    const xBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant text-base p-0 leading-none transition-colors duration-150 hover:text-on-surface", title: "Close" }, [txt("✕")]);
+    const modal = el("div", { className: "bg-surface-container-low border border-outline-variant rounded-lg p-4 flex flex-col gap-3 w-[min(900px,90vw)] max-h-[85vh] overflow-hidden" });
+    const header = el("div", { className: "flex items-center justify-between gap-2 shrink-0" });
+    const titleEl = el("h3", { className: "text-headline m-0 flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap", title: title }, [txt(title)]);
+    header.appendChild(titleEl);
+    const xBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant text-base p-0 leading-none transition-colors duration-150 hover:text-on-surface shrink-0", title: "Close" }, [txt("✕")]);
     xBtn.onclick = () => this.overlayEl.classList.add("hidden");
     header.appendChild(xBtn);
     modal.appendChild(header);
 
-    const pre = el("pre", { className: "font-mono text-xs text-on-surface bg-surface-dim border border-outline-variant rounded-md p-3 m-0 overflow-auto flex-1 min-h-0 whitespace-pre-wrap break-all" });
+    const pre = el("pre", { className: "font-mono text-xs text-on-surface bg-surface-dim border border-outline-variant rounded-md p-3 m-0 overflow-auto flex-1 min-h-0 max-h-[60vh] whitespace-pre-wrap break-all" });
     pre.textContent = json;
     modal.appendChild(pre);
 
-    const footer = el("div", { className: "flex items-center justify-end gap-2" });
+    const footer = el("div", { className: "flex items-center justify-end gap-2 shrink-0" });
     const saveBtn = el("button", { className: "bg-primary text-on-primary border-none py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85" }, [txt("Save")]);
     saveBtn.onclick = () => { vscode.postMessage({ type: "save-json", json, defaultName: defaultName || "session.json" }); };
     footer.appendChild(saveBtn);
@@ -2424,7 +2425,8 @@ class App {
         case "session-export-data": {
           const sid = (msg.sessionId as string) || "";
           const json = (msg.json as string) || "";
-          this.showJsonViewerModal("Exported session" + (sid ? " · " + sid.slice(0, 12) + "…" : ""), json, sid ? "session-" + sid.slice(0, 12) + ".json" : "session.json");
+          const shortId = sid ? sid.slice(0, 8) : "";
+          this.showJsonViewerModal(shortId ? "Exported session · " + shortId : "Exported session", json, sid ? "session-" + sid.slice(0, 12) + ".json" : "session.json");
           break;
         }
         case "session-import-data": {

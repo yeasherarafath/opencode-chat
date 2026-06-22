@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { OpenCodeCli } from "./OpenCodeCli";
 import { JsonLogger } from "./JsonLogger";
+import { AuthProxy } from "./AuthProxy";
 
 export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   static readonly viewType = "opencode-chat.chatView";
@@ -11,6 +12,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   private opencodeVersion = "";
   private extensionVersion = "";
   private cli: OpenCodeCli;
+  private authProxy = new AuthProxy();
 
   constructor(extensionUri: vscode.Uri, cli: OpenCodeCli, extensionVersion: string) {
     this.cli = cli;
@@ -286,12 +288,15 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
               vscode.window.showErrorMessage("OpenCode server is not reachable. Try sending a message to start it.");
               break;
             }
-            const url = this.cli.getServerUrl();
-            if (!url) {
-              vscode.window.showErrorMessage("OpenCode server URL is not available.");
+            const targetUrl = this.cli.getServerUrl();
+            const password = this.cli.getServerPassword();
+            if (!targetUrl || !password) {
+              vscode.window.showErrorMessage("OpenCode server URL or password is not available.");
               break;
             }
-            await vscode.commands.executeCommand("simpleBrowser.show", vscode.Uri.parse(url));
+            const proxyUrl = await this.authProxy.start(targetUrl, "opencode", password);
+            this.log(`open-web-gui: proxy=${proxyUrl} target=${targetUrl}`);
+            await vscode.commands.executeCommand("simpleBrowser.show", vscode.Uri.parse(proxyUrl));
           } catch (e) {
             this.log(`open-web-gui error: ${e}`);
             vscode.window.showErrorMessage(`Open web GUI failed: ${e}`);
@@ -733,6 +738,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     this.autoFetchConfigSub?.dispose();
     this.configChangeSub?.dispose();
     this.activeEditorSub?.dispose();
+    this.authProxy.stop();
   }
 
   private getHtml(webview: vscode.Webview): string {
