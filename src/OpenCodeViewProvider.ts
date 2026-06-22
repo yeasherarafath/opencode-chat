@@ -274,7 +274,16 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
           try {
             const text = await require("fs").promises.readFile(filePath, "utf-8");
             this.view?.webview.postMessage({ type: "session-import-data", json: text });
-            vscode.window.showInformationMessage("Session imported successfully");
+            try {
+              await this.cli.runCliCommand(["import", filePath]);
+              this.log(`session-import: registered with server`);
+              await this.refreshSessions();
+              vscode.window.showInformationMessage("Session imported and registered successfully");
+            } catch (cliErr) {
+              const msg = cliErr instanceof Error ? cliErr.message : String(cliErr);
+              this.log(`session-import server registration failed: ${msg}`);
+              vscode.window.showWarningMessage(`Session loaded, but server registration failed: ${msg}`);
+            }
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             this.log(`session-import error: ${msg}`);
@@ -763,6 +772,48 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     this.configChangeSub?.dispose();
     this.activeEditorSub?.dispose();
     this.authProxy.stop();
+  }
+
+  private buildWebGuiHtml(proxyUrl: string): string {
+    const escaped = proxyUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src http://127.0.0.1:* ws://127.0.0.1:*; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src http: https: data:; font-src http: https: data:; connect-src http://127.0.0.1:* ws://127.0.0.1:*;">
+<title>OpenCode Web GUI</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: var(--vscode-editor-background, #1e1e1e); }
+  #toolbar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--vscode-titleBar-activeBackground, #2d2d2d); color: var(--vscode-titleBar-activeForeground, #ccc); font: 12px var(--vscode-font-family, sans-serif); border-bottom: 1px solid var(--vscode-widget-border, #444); }
+  #toolbar button { background: transparent; color: inherit; border: 1px solid transparent; padding: 2px 8px; cursor: pointer; border-radius: 2px; font: inherit; }
+  #toolbar button:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); }
+  #url { flex: 1; min-width: 0; background: var(--vscode-input-background, #1e1e1e); color: var(--vscode-input-foreground, #ccc); border: 1px solid var(--vscode-input-border, #444); padding: 2px 6px; font: inherit; border-radius: 2px; }
+  iframe { width: 100%; height: calc(100% - 28px); border: none; display: block; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <button id="back" title="Back">◀</button>
+  <button id="forward" title="Forward">▶</button>
+  <button id="reload" title="Reload">⟳</button>
+  <input id="url" type="text" value="${escaped}" />
+  <button id="go" title="Go">Go</button>
+</div>
+<iframe id="frame" src="${escaped}"></iframe>
+<script>
+  const vscode = acquireVsCodeApi();
+  const frame = document.getElementById('frame');
+  const urlInput = document.getElementById('url');
+  document.getElementById('reload').onclick = () => { frame.src = frame.src; };
+  document.getElementById('back').onclick = () => { history.back(); };
+  document.getElementById('forward').onclick = () => { history.forward(); };
+  document.getElementById('go').onclick = () => { const u = urlInput.value.trim(); if (u) frame.src = u; };
+  urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const u = urlInput.value.trim(); if (u) frame.src = u; } });
+  let lastUrl = frame.src;
+  setInterval(() => { try { const cur = frame.contentWindow.location.href; if (cur && cur !== lastUrl && cur !== 'about:blank') { lastUrl = cur; urlInput.value = cur; vscode.postMessage({ type: 'navigate', url: cur }); } } catch (_) {} }, 500);
+</script>
+</body>
+</html>`;
   }
 
   private getHtml(webview: vscode.Webview): string {
