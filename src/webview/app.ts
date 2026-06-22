@@ -312,6 +312,9 @@ class App {
   private sendBtn!: HTMLButtonElement;
   private abortBtn!: HTMLButtonElement;
   private variantPopup!: HTMLElement;
+  private modelPill!: HTMLElement;
+  private modelPopup!: HTMLElement;
+  private variantPill!: HTMLElement;
   private statusDot!: HTMLElement;
   private statusText!: HTMLElement;
   private infoBtn!: HTMLElement;
@@ -591,8 +594,10 @@ class App {
 
     const inputToolbar = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant" });
     const modelPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Selected model", "data-part": "model-pill" });
+    this.modelPill = modelPill;
     modelPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedModel || "Model") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
     const modelPopup = el("div", { className: "absolute bottom-full left-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[220px] z-100 shadow-lg" });
+    this.modelPopup = modelPopup;
     modelPopup.style.maxHeight = "260px";
     modelPopup.style.display = "none";
     modelPopup.style.overflowY = "auto";
@@ -636,15 +641,12 @@ class App {
     };
     modelSearch.oninput = () => renderModelList(modelSearch.value.toLowerCase());
     modelSearch.onkeydown = (e) => { if (e.key === "Escape") modelPopup.style.display = "none"; };
-    document.addEventListener("click", (e) => {
-      if (!modelPill.contains(e.target as Node) && !modelPopup.contains(e.target as Node))
-        modelPopup.style.display = "none";
-    });
     inputToolbar.style.position = "relative";
     inputToolbar.appendChild(modelPill);
     inputToolbar.appendChild(modelPopup);
 
     const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Variant", "data-part": "variant-pill" });
+    this.variantPill = variantPill;
     variantPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedVariant || "Balanced") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
     this.variantPopup = el("div", { className: "absolute bottom-full right-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[120px] z-100 shadow-lg" });
     this.variantPopup.style.display = "none";
@@ -663,16 +665,6 @@ class App {
     variantPill.onclick = () => {
       this.variantPopup.style.display = this.variantPopup.style.display === "none" ? "block" : "none";
     };
-    document.addEventListener("click", (e) => {
-      if (!variantPill.contains(e.target as Node) && !this.variantPopup.contains(e.target as Node))
-        this.variantPopup.style.display = "none";
-    });
-    document.addEventListener("click", (e) => {
-      if (!this.inputTextarea.contains(e.target as Node) && !this.atMenuEl.contains(e.target as Node) && !this.slashMenuEl.contains(e.target as Node)) {
-        this.hideAtMenu();
-        this.hideSlashMenu();
-      }
-    });
     inputToolbar.appendChild(variantPill);
     inputToolbar.appendChild(this.variantPopup);
 
@@ -2685,6 +2677,23 @@ class App {
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
         e.preventDefault();
         this.toggleSearch();
+      }
+    });
+    document.addEventListener("click", (e) => {
+      if (!this.modelPill || !this.modelPopup) return;
+      if (!this.modelPill.contains(e.target as Node) && !this.modelPopup.contains(e.target as Node))
+        this.modelPopup.style.display = "none";
+    });
+    document.addEventListener("click", (e) => {
+      if (!this.variantPill || !this.variantPopup) return;
+      if (!this.variantPill.contains(e.target as Node) && !this.variantPopup.contains(e.target as Node))
+        this.variantPopup.style.display = "none";
+    });
+    document.addEventListener("click", (e) => {
+      if (!this.inputTextarea || !this.atMenuEl || !this.slashMenuEl) return;
+      if (!this.inputTextarea.contains(e.target as Node) && !this.atMenuEl.contains(e.target as Node) && !this.slashMenuEl.contains(e.target as Node)) {
+        this.hideAtMenu();
+        this.hideSlashMenu();
       }
     });
     console.log("[webview] listener attached");
