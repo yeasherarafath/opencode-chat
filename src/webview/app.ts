@@ -1117,7 +1117,7 @@ class App {
     };
   }
 
-  private showJsonViewerModal(title: string, json: string): void {
+  private showJsonViewerModal(title: string, json: string, defaultName?: string): void {
     this.overlayEl.innerHTML = "";
     this.overlayEl.classList.remove("hidden");
 
@@ -1134,7 +1134,10 @@ class App {
     modal.appendChild(pre);
 
     const footer = el("div", { className: "flex items-center justify-end gap-2" });
-    const copyBtn = el("button", { className: "bg-primary text-on-primary border-none py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85" }, [txt("Copy")]);
+    const saveBtn = el("button", { className: "bg-primary text-on-primary border-none py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85" }, [txt("Save")]);
+    saveBtn.onclick = () => { vscode.postMessage({ type: "save-json", json, defaultName: defaultName || "session.json" }); };
+    footer.appendChild(saveBtn);
+    const copyBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Copy")]);
     copyBtn.onclick = () => { vscode.postMessage({ type: "copy-text", text: json }); };
     footer.appendChild(copyBtn);
     const closeBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Close")]);
@@ -2421,12 +2424,12 @@ class App {
         case "session-export-data": {
           const sid = (msg.sessionId as string) || "";
           const json = (msg.json as string) || "";
-          this.showJsonViewerModal("Exported session" + (sid ? " · " + sid.slice(0, 12) + "…" : ""), json);
+          this.showJsonViewerModal("Exported session" + (sid ? " · " + sid.slice(0, 12) + "…" : ""), json, sid ? "session-" + sid.slice(0, 12) + ".json" : "session.json");
           break;
         }
         case "session-import-data": {
           const json = (msg.json as string) || "{}";
-          this.showJsonViewerModal("Imported session", json);
+          this.showJsonViewerModal("Imported session", json, "imported-session.json");
           break;
         }
         case "session-import-error": {
