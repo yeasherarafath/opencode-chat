@@ -5,10 +5,10 @@ const vscode = acquireVsCodeApi();
 
 import {
   AlertTriangle, Archive, ArrowUp, Bot, Camera, Check, CheckCircle,
-  ChevronDown, ChevronUp, Circle, Clock, Copy, File, GitBranch,
+  ChevronDown, ChevronUp, Circle, Clock, Copy, Download, File, GitBranch,
   GitCompare, GitPullRequest, Headphones, Image, Info, Lightbulb,
   Loader2, MessageSquare, Paperclip, Pencil, Play, Plus, RefreshCw,
-  RotateCcw, Settings, Share2, Square, Trash2, User, Video, Wrench, X,
+  RotateCcw, Settings, Share2, Square, Trash2, Upload, User, Video, Wrench, X,
   XCircle,
 } from "lucide-static";
 import { marked } from "marked";
@@ -230,6 +230,7 @@ const SLASH_CMDS = [
   { cmd: "/export", desc: "Export session transcript" },
   { cmd: "/fork", desc: "Fork session" },
   { cmd: "/help", desc: "Show help" },
+  { cmd: "/import", desc: "Import session from JSON/URL" },
   { cmd: "/init", desc: "Initialize project analysis" },
   { cmd: "/mcps", desc: "Manage MCP servers" },
   { cmd: "/review", desc: "Review changes [commit|branch|pr]" },
@@ -336,6 +337,7 @@ class App {
   private slashMenuEl!: HTMLElement;
   private sessionSearchInput!: HTMLInputElement;
   private sessionListEl!: HTMLElement;
+  private ioBtn!: HTMLButtonElement;
   private atMenuEl!: HTMLElement;
   private fileChipsEl!: HTMLElement;
   private activeFile = "";
@@ -432,18 +434,14 @@ class App {
     hdr.appendChild(left);
 
     const right = el("div", { className: "flex items-center gap-1" });
-    const sessBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Toggle sessions" });
-    sessBtn.innerHTML = "Chat Sessions <span style='font-size:10px'>▼</span>";
-    sessBtn.onclick = () => {
-      this.state.showSessions = !this.state.showSessions;
-      this.sessionsPanel.classList.toggle("hidden", !this.state.showSessions);
-      sessBtn.querySelector("span")!.textContent = this.state.showSessions ? "▲" : "▼";
-    };
-    right.appendChild(sessBtn);
     const histBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "History" });
     histBtn.innerHTML = "<span class='icon'>" + Clock + "</span>";
     histBtn.onclick = () => { this.state.showSessions = !this.state.showSessions; this.sessionsPanel.classList.toggle("hidden"); };
     right.appendChild(histBtn);
+    this.ioBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Import session" });
+    this.ioBtn.onclick = () => this.handleIoBtn();
+    this.updateIoBtn();
+    right.appendChild(this.ioBtn);
     const providersBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Providers" });
     providersBtn.innerHTML = Settings;
     providersBtn.onclick = () => {
@@ -453,6 +451,26 @@ class App {
     right.appendChild(providersBtn);
     hdr.appendChild(right);
     return hdr;
+  }
+
+  private updateIoBtn(): void {
+    if (!this.ioBtn) return;
+    const sid = this.state.currentSessionId;
+    if (sid) {
+      this.ioBtn.innerHTML = "<span class='icon'>" + Download + "</span>";
+      this.ioBtn.title = "Export current session";
+    } else {
+      this.ioBtn.innerHTML = "<span class='icon'>" + Upload + "</span>";
+      this.ioBtn.title = "Import session from JSON/URL";
+    }
+  }
+
+  private handleIoBtn(): void {
+    if (this.state.currentSessionId) {
+      vscode.postMessage({ type: "session-export", sessionId: this.state.currentSessionId });
+    } else {
+      vscode.postMessage({ type: "session-import" });
+    }
   }
 
   private createAgentBar(): HTMLElement {
@@ -1093,6 +1111,45 @@ class App {
     this.overlayEl.onclick = (e) => {
       if (e.target === this.overlayEl) this.overlayEl.classList.add("hidden");
     };
+  }
+
+  private showJsonViewerModal(title: string, json: string): void {
+    this.overlayEl.innerHTML = "";
+    this.overlayEl.classList.remove("hidden");
+
+    const modal = el("div", { className: "bg-surface-container-low border border-outline-variant rounded-lg p-5 flex flex-col gap-3 w-[min(900px,90vw)] max-h-[80vh]" });
+    const header = el("div", { className: "flex items-center justify-between gap-3" });
+    header.appendChild(el("h3", { className: "text-headline m-0" }, [txt(title)]));
+    const xBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant text-base p-0 leading-none transition-colors duration-150 hover:text-on-surface", title: "Close" }, [txt("✕")]);
+    xBtn.onclick = () => this.overlayEl.classList.add("hidden");
+    header.appendChild(xBtn);
+    modal.appendChild(header);
+
+    const pre = el("pre", { className: "font-mono text-xs text-on-surface bg-surface-dim border border-outline-variant rounded-md p-3 m-0 overflow-auto flex-1 min-h-0 whitespace-pre-wrap break-all" });
+    pre.textContent = json;
+    modal.appendChild(pre);
+
+    const footer = el("div", { className: "flex items-center justify-end gap-2" });
+    const copyBtn = el("button", { className: "bg-primary text-on-primary border-none py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85" }, [txt("Copy")]);
+    copyBtn.onclick = () => { vscode.postMessage({ type: "copy-text", text: json }); };
+    footer.appendChild(copyBtn);
+    const closeBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Close")]);
+    closeBtn.onclick = () => this.overlayEl.classList.add("hidden");
+    footer.appendChild(closeBtn);
+    modal.appendChild(footer);
+
+    this.overlayEl.appendChild(modal);
+    this.overlayEl.onclick = (e) => {
+      if (e.target === this.overlayEl) this.overlayEl.classList.add("hidden");
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        this.overlayEl.classList.add("hidden");
+        document.removeEventListener("keydown", onKey);
+      }
+    };
+    document.addEventListener("keydown", onKey);
   }
 
   private renderMessages(): void {
@@ -1981,6 +2038,15 @@ class App {
     this.inputTextarea.style.height = "auto";
     const isSlash = raw.startsWith("/");
 
+    if (raw === "/import") {
+      vscode.postMessage({ type: "session-import" });
+      return;
+    }
+    if (raw === "/export" && this.state.currentSessionId) {
+      vscode.postMessage({ type: "session-export", sessionId: this.state.currentSessionId });
+      return;
+    }
+
     // collect file refs, build display text (with @refs) and prompt text (without @refs)
     const fileRefs: string[] = [];
     let displayText = raw;
@@ -2038,6 +2104,7 @@ class App {
     this.updateRunningState();
     this.setStatus("ready", "Ready");
     this.updateSessionStatus();
+    this.updateIoBtn();
   }
 
   private updateSessionStatus(): void {
@@ -2059,6 +2126,7 @@ class App {
     this.setStatus("busy", "Loading...");
     this.updateSessionStatus();
     this.renderMessages();
+    this.updateIoBtn();
     vscode.postMessage({ type: "load-messages", sessionId: id });
   }
 
@@ -2125,6 +2193,7 @@ class App {
         case "session-loaded":
           this.state.currentSessionId = msg.sessionId as string;
           this.state.sessionLoading = false;
+          this.updateIoBtn();
           const raw = msg.messages as Record<string, unknown>[];
           this.state.messages = raw.map((m) => {
             const info = (m as any).info || {};
@@ -2255,6 +2324,7 @@ class App {
         case "session-id":
           console.log(`[webview] session-id: ${msg.sessionId}`);
           this.state.currentSessionId = msg.sessionId as string;
+          this.updateIoBtn();
           break;
         case "aborted":
           console.log("[webview] aborted");
@@ -2344,6 +2414,21 @@ class App {
         case "session-summarized":
           console.log(`[webview] session-summarized: id=${msg.sessionId}`);
           break;
+        case "session-export-data": {
+          const sid = (msg.sessionId as string) || "";
+          const json = (msg.json as string) || "";
+          this.showJsonViewerModal("Exported session" + (sid ? " · " + sid.slice(0, 12) + "…" : ""), json);
+          break;
+        }
+        case "session-import-data": {
+          const json = (msg.json as string) || "{}";
+          this.showJsonViewerModal("Imported session", json);
+          break;
+        }
+        case "session-import-error": {
+          this.setStatus("error", "Import failed: " + (msg.message || "unknown error"));
+          break;
+        }
         case "session-diff":
           console.log(`[webview] session-diff: ${(msg.diff as any[])?.length} files`);
           if (this.pendingDiffResolve) {

@@ -239,6 +239,41 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
           await this.exportToFile(message.sessionId as string).catch((e) => this.log(`exportToFile error: ${e}`));
           break;
         }
+        case "session-export": {
+          const sid = message.sessionId as string;
+          this.log(`handleMessage: session-export id=${sid}`);
+          if (!sid) {
+            this.view?.webview.postMessage({ type: "session-import-error", message: "No session selected." });
+            break;
+          }
+          try {
+            const json = await this.cli.runCliCommand(["export", sid]);
+            this.view?.webview.postMessage({ type: "session-export-data", sessionId: sid, json });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            this.log(`session-export error: ${msg}`);
+            this.view?.webview.postMessage({ type: "session-import-error", message: msg });
+          }
+          break;
+        }
+        case "session-import": {
+          this.log("handleMessage: session-import");
+          const input = await vscode.window.showInputBox({
+            prompt: "Import session from JSON file or URL",
+            placeHolder: "/path/to/session.json or https://...",
+            ignoreFocusOut: true,
+          });
+          if (!input) { this.log("session-import: cancelled"); break; }
+          try {
+            const json = await this.cli.runCliCommand(["import", input]);
+            this.view?.webview.postMessage({ type: "session-import-data", json });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            this.log(`session-import error: ${msg}`);
+            this.view?.webview.postMessage({ type: "session-import-error", message: msg });
+          }
+          break;
+        }
         case "open-file": {
           this.log(`handleMessage: open-file path=${message.path}`);
           this.openFile(message.path as string);
