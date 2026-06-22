@@ -298,6 +298,26 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
           }
           break;
         }
+        case "save-json": {
+          const json = (message.json as string) ?? "";
+          const defaultName = (message.defaultName as string) || "session.json";
+          this.log(`handleMessage: save-json len=${json.length} defaultName=${defaultName}`);
+          try {
+            const target = await vscode.window.showSaveDialog({
+              title: "Save session JSON",
+              defaultUri: vscode.Uri.file(defaultName),
+              filters: { "JSON": ["json"] },
+            });
+            if (!target) { this.log("save-json: cancelled"); break; }
+            await require("fs").promises.writeFile(target.fsPath, json, "utf-8");
+            vscode.window.showInformationMessage(`Saved to ${target.fsPath}`);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            this.log(`save-json error: ${msg}`);
+            vscode.window.showErrorMessage(`Save failed: ${msg}`);
+          }
+          break;
+        }
         case "open-file": {
           this.log(`handleMessage: open-file path=${message.path}`);
           this.openFile(message.path as string);
