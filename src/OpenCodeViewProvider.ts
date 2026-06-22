@@ -247,7 +247,8 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
             break;
           }
           try {
-            const json = await this.cli.runCliCommand(["export", sid]);
+            const data = await this.cli.exportSession(sid);
+            const json = JSON.stringify(data, null, 2);
             this.view?.webview.postMessage({ type: "session-export-data", sessionId: sid, json });
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
@@ -258,19 +259,42 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
         }
         case "session-import": {
           this.log("handleMessage: session-import");
-          const input = await vscode.window.showInputBox({
-            prompt: "Import session from JSON file or URL",
-            placeHolder: "/path/to/session.json or https://...",
-            ignoreFocusOut: true,
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            title: "Import session from JSON file",
+            filters: { "Session JSON": ["json"] },
           });
-          if (!input) { this.log("session-import: cancelled"); break; }
+          if (!picked || !picked[0]) { this.log("session-import: cancelled"); break; }
+          const filePath = picked[0].fsPath;
           try {
-            const json = await this.cli.runCliCommand(["import", input]);
-            this.view?.webview.postMessage({ type: "session-import-data", json });
+            const text = await require("fs").promises.readFile(filePath, "utf-8");
+            this.view?.webview.postMessage({ type: "session-import-data", json: text });
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             this.log(`session-import error: ${msg}`);
             this.view?.webview.postMessage({ type: "session-import-error", message: msg });
+          }
+          break;
+        }
+        case "open-web-gui": {
+          this.log("handleMessage: open-web-gui");
+          try {
+            const healthy = await this.cli.ensureServerHealthy();
+            if (!healthy) {
+              vscode.window.showErrorMessage("OpenCode server is not reachable. Try sending a message to start it.");
+              break;
+            }
+            const url = this.cli.getServerUrl();
+            if (!url) {
+              vscode.window.showErrorMessage("OpenCode server URL is not available.");
+              break;
+            }
+            await vscode.commands.executeCommand("simpleBrowser.show", vscode.Uri.parse(url));
+          } catch (e) {
+            this.log(`open-web-gui error: ${e}`);
+            vscode.window.showErrorMessage(`Open web GUI failed: ${e}`);
           }
           break;
         }

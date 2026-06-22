@@ -434,6 +434,10 @@ export class OpenCodeCli {
     return "https://opencode.ai/install";
   }
 
+  getServerUrl(): string {
+    return this.serverUrl;
+  }
+
   async listSessions(maxCount = 50): Promise<SessionInfo[]> {
     const result = await this.client!.session.list();
     const sessions: Session[] = result.data ?? [];

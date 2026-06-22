@@ -6,7 +6,7 @@ const vscode = acquireVsCodeApi();
 import {
   AlertTriangle, Archive, ArrowUp, Bot, Camera, Check, CheckCircle,
   ChevronDown, ChevronUp, Circle, Clock, Copy, Download, File, GitBranch,
-  GitCompare, GitPullRequest, Headphones, Image, Info, Lightbulb,
+  GitCompare, GitPullRequest, Globe, Headphones, Image, Info, Lightbulb,
   Loader2, MessageSquare, Paperclip, Pencil, Play, Plus, RefreshCw,
   RotateCcw, Settings, Share2, Square, Trash2, Upload, User, Video, Wrench, X,
   XCircle,
@@ -442,6 +442,10 @@ class App {
     this.ioBtn.onclick = () => this.handleIoBtn();
     this.updateIoBtn();
     right.appendChild(this.ioBtn);
+    const globeBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Open OpenCode web GUI" });
+    globeBtn.innerHTML = "<span class='icon'>" + Globe + "</span>";
+    globeBtn.onclick = () => { vscode.postMessage({ type: "open-web-gui" }); };
+    right.appendChild(globeBtn);
     const providersBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Providers" });
     providersBtn.innerHTML = Settings;
     providersBtn.onclick = () => {
