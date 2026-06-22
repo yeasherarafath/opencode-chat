@@ -8,7 +8,7 @@ import {
   ChevronDown, ChevronUp, Circle, Clock, Copy, Download, File, GitBranch,
   GitCompare, GitPullRequest, Globe, Headphones, Image, Info, Lightbulb,
   Loader2, MessageSquare, Paperclip, Pencil, Play, Plus, RefreshCw,
-  RotateCcw, Settings, Share2, Square, Trash2, Upload, User, Video, Wrench, X,
+  RotateCcw, Settings, Square, Trash2, Upload, User, Video, Wrench, X,
   XCircle,
 } from "lucide-static";
 import { marked } from "marked";
