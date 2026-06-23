@@ -2,6 +2,11 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.3.2] - 2026-06-24
+
+### Fixed
+- **Token count in status bar now matches opencode** — status bar was showing total accumulated tokens (sum of all `step-finish` parts) instead of the current context token count. Now uses the last `step-finish` total, which matches opencode's "Context" display. Also fixes token count not showing on initial session open.
+
 ## [0.3.0] - 2026-06-22
 
 ### Added
