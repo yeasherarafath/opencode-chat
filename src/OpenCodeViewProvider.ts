@@ -492,6 +492,13 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     const defaultAgent = cfg.get<string>("defaultAgent") || "";
     this.log(`sendInitialState: posting state isInstalled=${this.isInstalled} version=${this.opencodeVersion}`);
     this.view.webview.postMessage({ type: "state", isInstalled: this.isInstalled, opencodeVersion: this.opencodeVersion, extensionVersion: this.extensionVersion, defaultModel, defaultAgent });
+
+    // Send pendingInputText AFTER state so render() doesn't clear the input
+    if (this.pendingInputText) {
+      try { this.view.webview.postMessage({ type: "set-input", text: this.pendingInputText }); } catch {}
+      this.pendingInputText = "";
+    }
+
     if (!this.isInstalled) { this.log("sendInitialState: not installed, skip refresh"); return; }
     this.log("sendInitialState: refreshing sessions/models/agents");
     try {
@@ -725,7 +732,9 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
 
   setInputText(text: string): void {
     this.pendingInputText = text;
-    try { this.view?.webview.postMessage({ type: "set-input", text }); } catch {}
+    if (this.view?.visible) {
+      try { this.view.webview.postMessage({ type: "set-input", text }); } catch {}
+    }
   }
 
   // --- Auto-fetch: start SSE subscription or polling fallback ---
