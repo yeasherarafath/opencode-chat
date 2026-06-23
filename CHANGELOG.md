@@ -2,6 +2,20 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.3.5] - 2026-06-24
+
+### Added
+- **Right-click context menu** — "OpenCode AI Chat: Open file in chat" in Explorer and Editor context menus. Pre-fills the input with `@relative/path line no:{N}` (1-indexed) so you can add more text before sending.
+- **Auto-reload chat area on CLI updates** — when the extension sidebar is open and you chat from the CLI, polling detects the updated session and automatically reloads messages in the chat area.
+
+### Fixed
+- **Auto-fetch polling now reconnects** — `pollSessions` and `subscribeGlobalEvents` call `ensureServerHealthy()` when `this.client` is null, instead of silently spinning in a failed loop forever.
+- **Line number in editor context menu** — robustly handles both `vscode.Uri` and `{ resource: vscode.Uri }` arg formats from different VS Code versions.
+- **Sidebar closed → pre-fill text lost** — `setInputText` stores pending text and delivers it when the webview sends `"ready"`, so the file reference appears even if the sidebar was hidden.
+
+### Changed
+- **`autoFetchIntervalMs` default** — changed from `0` (SSE-only) to `500` (poll every 500ms), since SSE was unreliable for many users. Existing settings are unaffected.
+
 ## [0.3.2] - 2026-06-24
 
 ### Fixed
