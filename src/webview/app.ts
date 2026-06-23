@@ -962,8 +962,10 @@ class App {
     if (this.sessionTokens) {
       const t = this.sessionTokens;
       const total = t.total || (t.input || 0) + (t.output || 0) + (t.reasoning || 0);
+      console.log("[webview] computeTokenTotal using session tokens:", total, "cost:", this.sessionCost);
       return { tokens: total, cost: this.sessionCost ?? 0 };
     }
+    console.log("[webview] computeTokenTotal no session tokens, falling back to step-finish");
     let totalTokens = 0;
     let totalCost = 0;
     for (const msg of this.state.messages) {
@@ -2232,6 +2234,10 @@ class App {
             if (sessionData) {
               this.sessionTokens = (sessionData.tokens as Msg["tokens"]) || null;
               this.sessionCost = (sessionData.cost as number) ?? null;
+              console.log("[webview] session tokens from export:", JSON.stringify(this.sessionTokens), "cost:", this.sessionCost);
+              console.log("[webview] session data keys:", Object.keys(sessionData).join(", "));
+            } else {
+              console.log("[webview] no session data in session-loaded message");
             }
           }
           const raw = msg.messages as Record<string, unknown>[];
