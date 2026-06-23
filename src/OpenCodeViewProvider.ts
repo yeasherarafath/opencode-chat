@@ -130,6 +130,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   private currentSessionId: string | undefined;
   private activeEditorSub: vscode.Disposable | null = null;
   private pendingInputText = "";
+  private currentSessionUpdatedAt = "";
 
   // --- Auto-fetch lifecycle ---
   private autoFetchAbort: AbortController | null = null;
@@ -187,6 +188,8 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
         }
         case "load-messages": {
           this.log(`handleMessage: load-messages id=${message.sessionId}`);
+          this.currentSessionId = message.sessionId as string;
+          this.currentSessionUpdatedAt = "";
           try {
             await this.loadSessionMessages(message.sessionId as string);
           } catch (e) {
@@ -529,6 +532,14 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
       const sessions = await this.cli.listSessions();
       this.log(`refreshSessions: got ${sessions.length} sessions`);
       this.view.webview.postMessage({ type: "sessions", sessions });
+      if (this.currentSessionId) {
+        const current = sessions.find(s => s.id === this.currentSessionId);
+        if (current && current.updated_at !== this.currentSessionUpdatedAt) {
+          this.log(`refreshSessions: session ${this.currentSessionId} updated, reloading messages`);
+          this.currentSessionUpdatedAt = current.updated_at;
+          this.loadSessionMessages(this.currentSessionId);
+        }
+      }
     } catch (e) {
       this.log(`refreshSessions error: ${e}`);
       try { this.view.webview.postMessage({ type: "sessions", sessions: [] }); } catch {}
@@ -568,6 +579,10 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
       const data = await this.cli.exportSession(sessionId);
       const messages = (data as any).messages ?? [];
       this.log(`loadSessionMessages: got ${messages.length} messages`);
+      const time = (data as any).time as { updated: number } | undefined;
+      if (time?.updated) {
+        this.currentSessionUpdatedAt = new Date(time.updated).toISOString();
+      }
       this.view.webview.postMessage({
         type: "session-loaded",
         sessionId,
