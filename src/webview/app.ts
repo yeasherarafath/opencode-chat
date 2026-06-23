@@ -333,6 +333,8 @@ class App {
   private streamingReasoningBodyEl: HTMLElement | null = null;
   private streamingToolEls: Map<string, HTMLElement> = new Map();
   private streamingSeenPartIds: Set<string> = new Set();
+  private sessionTokens: Msg["tokens"] | null = null;
+  private sessionCost: number | null = null;
   private pendingSmoothScroll = false;
   private slashMenuEl!: HTMLElement;
   private sessionSearchInput!: HTMLInputElement;
@@ -957,6 +959,11 @@ class App {
   }
 
   private computeTokenTotal(): { tokens: number; cost: number } {
+    if (this.sessionTokens) {
+      const t = this.sessionTokens;
+      const total = t.total || (t.input || 0) + (t.output || 0) + (t.reasoning || 0);
+      return { tokens: total, cost: this.sessionCost ?? 0 };
+    }
     let totalTokens = 0;
     let totalCost = 0;
     for (const msg of this.state.messages) {
@@ -2111,6 +2118,8 @@ class App {
   }
 
   private newSession(): void {
+    this.sessionTokens = null;
+    this.sessionCost = null;
     this.state.currentSessionId = null;
     this.state.showSessions = true;
     this.state.isRunning = false;
@@ -2137,6 +2146,8 @@ class App {
   }
 
   private switchSession(id: string): void {
+    this.sessionTokens = null;
+    this.sessionCost = null;
     this.state.currentSessionId = id;
     this.state.showSessions = false;
     this.sessionsPanel.classList.add("hidden");
@@ -2153,6 +2164,8 @@ class App {
   private refreshSession(): void {
     const id = this.state.currentSessionId;
     if (!id) return;
+    this.sessionTokens = null;
+    this.sessionCost = null;
     this.setStatus("busy", "Refreshing...");
     this.state.messages = [];
     this.state.sessionLoading = true;
@@ -2214,6 +2227,13 @@ class App {
           this.state.currentSessionId = msg.sessionId as string;
           this.state.sessionLoading = false;
           this.updateIoBtn();
+          {
+            const sessionData = msg.session as Record<string, unknown> | undefined;
+            if (sessionData) {
+              this.sessionTokens = (sessionData.tokens as Msg["tokens"]) || null;
+              this.sessionCost = (sessionData.cost as number) ?? null;
+            }
+          }
           const raw = msg.messages as Record<string, unknown>[];
           this.state.messages = raw.map((m) => {
             const info = (m as any).info || {};
@@ -2278,6 +2298,8 @@ class App {
           break;
         case "response-start":
           console.log("[webview] response-start");
+          this.sessionTokens = null;
+          this.sessionCost = null;
           this.state.isRunning = true;
           this.updateRunningState();
           this.setStatus("busy", "Generating...");
