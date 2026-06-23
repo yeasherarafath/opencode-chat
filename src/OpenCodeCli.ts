@@ -530,7 +530,11 @@ export class OpenCodeCli {
     onEvent: (e: { type: "session.created" | "session.updated" | "session.deleted"; info: SessionInfo }) => void,
     signal: AbortSignal
   ): Promise<void> {
-    if (!this.client) { this.log("subscribeGlobalEvents: client is null"); return; }
+    if (!this.client) {
+      this.log("subscribeGlobalEvents: client is null, attempting reconnect...");
+      try { await this.ensureServerHealthy(); } catch {}
+      if (!this.client) { this.log("subscribeGlobalEvents: reconnect failed, returning"); return; }
+    }
     const events = await this.client.global.event();
     const iterator = events.stream[Symbol.asyncIterator]();
     try {
@@ -566,9 +570,16 @@ export class OpenCodeCli {
     if (intervalMs <= 0) return;
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
     let prevIds = "";
+    let reconnectAttempts = 0;
     while (!signal.aborted) {
+      if (!this.client) {
+        if (reconnectAttempts === 0) this.log("pollSessions: client is null, attempting reconnect...");
+        try { await this.ensureServerHealthy(); } catch {}
+        reconnectAttempts++;
+      }
       try {
         const sessions = await this.listSessions();
+        reconnectAttempts = 0;
         const ids = sessions.map((s) => s.id + ":" + s.updated_at).join("|");
         if (ids !== prevIds) {
           prevIds = ids;
