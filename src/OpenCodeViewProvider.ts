@@ -129,6 +129,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   private extensionUri: vscode.Uri = vscode.Uri.file("");
   private currentSessionId: string | undefined;
   private activeEditorSub: vscode.Disposable | null = null;
+  private pendingInputText = "";
 
   // --- Auto-fetch lifecycle ---
   private autoFetchAbort: AbortController | null = null;
@@ -154,6 +155,10 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
             const files = await vscode.workspace.findFiles("**/*", "{**/node_modules/**,**/.git/**}", 200);
             this.view.webview.postMessage({ type: "files", files: files.map(f => f.fsPath) });
           } catch (e) { this.log(`pre-fetch files error: ${e}`); }
+          if (this.pendingInputText) {
+            try { this.view.webview.postMessage({ type: "set-input", text: this.pendingInputText }); } catch {}
+            this.pendingInputText = "";
+          }
           break;
         }
         case "new-session":
@@ -701,6 +706,11 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
 
   newSession(): void {
     this.view?.webview.postMessage({ type: "new-session-ready" });
+  }
+
+  setInputText(text: string): void {
+    this.pendingInputText = text;
+    try { this.view?.webview.postMessage({ type: "set-input", text }); } catch {}
   }
 
   // --- Auto-fetch: start SSE subscription or polling fallback ---

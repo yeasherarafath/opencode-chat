@@ -82,6 +82,45 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("opencode-chat.openInChat", (arg?: unknown) => {
+      let uri: vscode.Uri | undefined;
+      if (!arg) {
+        uri = vscode.window.activeTextEditor?.document.uri;
+      } else if (arg instanceof vscode.Uri) {
+        uri = arg;
+      } else if (typeof arg === "object" && arg !== null) {
+        const obj = arg as Record<string, unknown>;
+        if (obj.resource instanceof vscode.Uri) uri = obj.resource;
+        else if (obj.uri instanceof vscode.Uri) uri = obj.uri;
+      }
+
+      if (!uri) {
+        vscode.window.showErrorMessage("OpenCode: No file selected");
+        return;
+      }
+
+      const editor = vscode.window.activeTextEditor;
+      const lineNo = (editor && editor.document.uri.fsPath === uri.fsPath)
+        ? editor.selection.active.line + 1
+        : undefined;
+
+      const filePath = uri.fsPath;
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      let relativePath = filePath;
+      if (workspaceRoot && filePath.startsWith(workspaceRoot)) {
+        relativePath = filePath.slice(workspaceRoot.length + 1);
+      }
+
+      const text = lineNo !== undefined
+        ? `@${relativePath} line no:${lineNo}`
+        : `@${relativePath}`;
+
+      vscode.commands.executeCommand("workbench.view.extension.opencode-chat");
+      provider.setInputText(text);
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand("opencode-chat.generateCommitMessage", async () => {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!workspaceRoot) {

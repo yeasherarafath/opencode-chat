@@ -2442,6 +2442,15 @@ class App {
           }
           break;
         }
+        case "set-input": {
+          const inputText = (msg.text as string) || "";
+          this.inputTextarea.value = inputText;
+          this.inputTextarea.style.height = "";
+          this.inputTextarea.style.height = Math.min(this.inputTextarea.scrollHeight, 140) + "px";
+          this.inputTextarea.focus();
+          this.inputTextarea.selectionStart = this.inputTextarea.selectionEnd = inputText.length;
+          break;
+        }
         case "session-created":
           console.log(`[webview] session-created: id=${(msg.session as any)?.id}`);
           this.state.sessions.unshift(msg.session as Session);

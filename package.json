@@ -153,6 +153,10 @@
         "command": "opencode-chat.generateCommitMessage",
         "title": "OpenCode: Generate Commit Message",
         "icon": "media/icon.png"
+      },
+      {
+        "command": "opencode-chat.openInChat",
+        "title": "OpenCode AI Chat: Open file in chat"
       }
     ],
     "menus": {
@@ -161,6 +165,19 @@
           "command": "opencode-chat.generateCommitMessage",
           "group": "navigation",
           "when": "scmProvider == git"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "opencode-chat.openInChat",
+          "group": "navigation",
+          "when": "explorerResourceIsFolder == false"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "opencode-chat.openInChat",
+          "group": "navigation"
         }
       ]
     }
