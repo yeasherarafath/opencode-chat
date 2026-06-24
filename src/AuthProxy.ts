@@ -5,10 +5,13 @@ export class AuthProxy {
   private server: http.Server | null = null;
   private port = 0;
   private authHeader = "";
+  private targetUrlStr = "";
+  private proxyUrlStr = "";
 
   async start(targetUrl: string, username: string, password: string): Promise<string> {
     if (this.server) return this.proxyUrl();
     this.authHeader = "Basic " + Buffer.from(`${username}:${password}`).toString("base64");
+    this.targetUrlStr = targetUrl.replace(/\/+$/, "");
     let target: URL;
     try {
       target = new URL(targetUrl);
@@ -31,8 +34,43 @@ export class AuthProxy {
           headers: this.buildHeaders(req.headers, targetHost, targetPort),
         };
         const proxyReq = http.request(opts, (proxyRes) => {
-          res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
-          proxyRes.pipe(res);
+          // rewrite Location header for redirects
+          const outHeaders = { ...proxyRes.headers };
+          if (outHeaders["location"]) {
+            const loc = Array.isArray(outHeaders["location"]) ? outHeaders["location"][0] : outHeaders["location"];
+            if (typeof loc === "string" && loc.startsWith(this.targetUrlStr)) {
+              outHeaders["location"] = loc.replace(this.targetUrlStr, this.proxyUrl().replace(/\/+$/, ""));
+            }
+          }
+
+          const ct = (Array.isArray(proxyRes.headers["content-type"]) ? proxyRes.headers["content-type"][0] : proxyRes.headers["content-type"]) || "";
+          if (ct.includes("text/html")) {
+            const chunks: Buffer[] = [];
+            proxyRes.on("data", (chunk: Buffer) => chunks.push(chunk));
+            proxyRes.on("end", () => {
+              let body = Buffer.concat(chunks).toString("utf-8");
+              // rewrite target URLs to proxy URLs in HTML body
+              if (body.includes(this.targetUrlStr)) {
+                body = body.replaceAll(this.targetUrlStr, this.proxyUrl().replace(/\/+$/, ""));
+                delete outHeaders["content-length"];
+                delete outHeaders["transfer-encoding"];
+                const buf = Buffer.from(body, "utf-8");
+                outHeaders["content-length"] = String(buf.length);
+                res.writeHead(proxyRes.statusCode || 502, outHeaders);
+                res.end(buf);
+              } else {
+                res.writeHead(proxyRes.statusCode || 502, outHeaders);
+                res.end(body);
+              }
+            });
+            proxyRes.on("error", (e) => {
+              JsonLogger.log("error", { source: "AuthProxy", error: e.message, phase: "read-html" });
+              if (!res.headersSent) { res.writeHead(502, outHeaders); res.end(String(e)); }
+            });
+          } else {
+            res.writeHead(proxyRes.statusCode || 502, outHeaders);
+            proxyRes.pipe(res);
+          }
         });
         proxyReq.on("error", (e) => {
           JsonLogger.log("error", { source: "AuthProxy", error: e.message, phase: "request" });
@@ -80,6 +118,7 @@ export class AuthProxy {
         const addr = server.address();
         if (addr && typeof addr === "object") {
           this.port = addr.port;
+          this.proxyUrlStr = this.proxyUrl().replace(/\/+$/, "");
           JsonLogger.log("meta", { event: "AuthProxy-start", port: this.port, target: targetUrl });
           resolve(this.proxyUrl());
         } else {
@@ -93,6 +132,8 @@ export class AuthProxy {
     const headers: http.OutgoingHttpHeaders = { ...(incoming as http.OutgoingHttpHeaders) };
     headers["host"] = `${host}:${port}`;
     headers["authorization"] = this.authHeader;
+    // strip accept-encoding so server sends uncompressed (needed for HTML rewriting)
+    delete headers["accept-encoding"];
     if (headers["connection"]) {
       const v = headers["connection"];
       if (typeof v === "string" && v.toLowerCase().includes("upgrade")) {
@@ -113,6 +154,8 @@ export class AuthProxy {
       this.server = null;
       this.port = 0;
       this.authHeader = "";
+      this.targetUrlStr = "";
+      this.proxyUrlStr = "";
     }
   }
 

@@ -2509,6 +2509,9 @@ class App {
           if (this.pendingProviderResolve) {
             this.pendingProviderResolve(msg.providers as Array<{ id: string; name: string; key?: string; modelCount: number }>);
             this.pendingProviderResolve = null;
+          } else {
+            console.log("[webview] providers ignored: no pending resolve");
+            vscode.postMessage({ type: "log", message: "providers ignored: no pending resolve" });
           }
           break;
         case "error":

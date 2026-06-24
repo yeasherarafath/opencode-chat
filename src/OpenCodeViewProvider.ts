@@ -481,6 +481,9 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
           this.log(`handleMessage: answer-question answer="${(message.answer as string || "").slice(0, 80)}"`);
           break;
         }
+        case "log":
+          this.log(`[webview] ${message.message || ""}`);
+          break;
         default:
           this.log(`handleMessage: unknown type="${type}"`);
       }

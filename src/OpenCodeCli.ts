@@ -678,14 +678,14 @@ export class OpenCodeCli {
       if (!data) { this.log("getProviderInfo: data is null/undefined"); return []; }
       const providers: any[] = Array.isArray(data) ? data : (data.providers ?? []);
       this.log(`getProviderInfo: ${providers.length} providers raw`);
-      const result = providers.map(p => ({
+      const info = providers.map(p => ({
         id: p.id,
         name: p.name,
         key: p.key,
         modelCount: p.models ? Object.keys(p.models).length : 0,
       }));
-      this.log(`getProviderInfo: returning ${result.length} providers`);
-      return result;
+      this.log(`getProviderInfo: returning ${info.length} providers`);
+      return info;
     } catch (e) {
       this.log(`getProviderInfo error: ${e}`);
       return [];
