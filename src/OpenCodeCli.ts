@@ -306,13 +306,11 @@ export class OpenCodeCli {
       this.log(`start: trying existing server at ${url}`);
       const pwd = this.serverPassword;
       const authHeader = pwd ? `Basic ${Buffer.from(`opencode:${pwd}`).toString("base64")}` : "";
-      const init: RequestInit & { headers?: Record<string, string> } = {};
-      if (authHeader) init.headers = { Authorization: authHeader };
+      const init: RequestInit = authHeader ? { headers: { Authorization: authHeader } } : {};
       const res = await fetch(`${url}/health`, init);
       if (res.ok) {
         this.serverUrl = url;
-        const opts: Record<string, unknown> = { baseUrl: url };
-        if (authHeader) opts.headers = { Authorization: authHeader };
+        const opts: Record<string, unknown> = authHeader ? { baseUrl: url, headers: { Authorization: authHeader } } : { baseUrl: url };
         this.client = createOpencodeClient(opts) as import("@opencode-ai/sdk/client").OpencodeClient;
         this.log("start: connected to existing server");
         return true;
