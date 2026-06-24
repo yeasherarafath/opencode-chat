@@ -13,6 +13,12 @@ Compatible with VS Code, VSCodium, Cursor, Windsurf, and any editor supporting t
 ![Landing page](media/landing.png)
 *Select old chat to continue or start new chat*
 
+![AI Commit Message Generator](media/ai-commit-message-generator.png)
+*Generate conventional commit messages from staged/unstaged git diff*
+
+![Easy current file pick](media/easy-current-file-pick.png)
+*Attach workspace files via @ mention menu or attachment icon*
+
 ## Features
 
 ### Core

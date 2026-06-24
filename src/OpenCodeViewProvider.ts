@@ -223,7 +223,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
           await this.refreshSessions().catch((e) => this.log(`refreshSessions error: ${e}`));
           break;
         case "refresh-models":
-          await this.refreshModels().catch((e) => this.log(`refreshModels error: ${e}`));
+          await this.refreshModels(true).catch((e) => this.log(`refreshModels error: ${e}`));
           break;
         case "update-model": {
           const model = message.model as string;
@@ -470,6 +470,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
             this.view.webview.postMessage({ type: "providers", providers });
           } catch (e) {
             this.log(`getProviderInfo error: ${e}`);
+            try { this.view.webview.postMessage({ type: "providers", providers: [] }); } catch {}
           }
           break;
         }
@@ -553,11 +554,12 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  async refreshModels(): Promise<void> {
+  async refreshModels(forceRefresh = false): Promise<void> {
     if (!this.view) { this.log("refreshModels: no view, skip"); return; }
     this.log("refreshModels");
     try {
-      const models = await this.cli.listModels();
+      if (forceRefresh) this.cli.clearCaches();
+      const models = await this.cli.listModels(forceRefresh);
       this.log(`refreshModels: got ${models.length} models`);
       this.view.webview.postMessage({ type: "models", models });
     } catch (e) {
@@ -566,11 +568,12 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async refreshAgents(): Promise<void> {
+  private async refreshAgents(forceRefresh = false): Promise<void> {
     if (!this.view) { this.log("refreshAgents: no view, skip"); return; }
     this.log("refreshAgents");
     try {
-      const agents = await this.cli.listAgents();
+      if (forceRefresh) this.cli.clearCaches();
+      const agents = await this.cli.listAgents(forceRefresh);
       this.log(`refreshAgents: got ${agents.length} agents`);
       this.view.webview.postMessage({ type: "agents", agents });
     } catch (e) {
@@ -627,6 +630,8 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     }
 
     let capturedSessionId = sessionId;
+    this.log("sendMessage: stopping auto-fetch during active chat");
+    this.stopAutoFetch();
     this.cli.runPrompt(
       text,
       opts,
@@ -655,6 +660,8 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
         try { this.view?.webview.postMessage({ type: "response-end" }); }
         catch (e) { this.log(`sendMessage: onExit postMessage error: ${e}`); }
         this.refreshSessions().catch((e) => this.log(`sendMessage: refreshSessions after exit error: ${e}`));
+        this.log("sendMessage: restarting auto-fetch after prompt exit");
+        this.startAutoFetch();
       }
     );
   }

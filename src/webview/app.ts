@@ -1203,7 +1203,13 @@ class App {
     this.scrollToBottom(smooth);
   }
 
+  private isAtBottom(threshold = 80): boolean {
+    const el = this.chatArea;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }
+
   private scrollToBottom(smooth: boolean): void {
+    if (!this.isAtBottom()) return;
     if (smooth) {
       this.chatArea.scrollTo({ top: this.chatArea.scrollHeight, behavior: "smooth" });
     } else {

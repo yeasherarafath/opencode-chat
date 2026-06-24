@@ -125,6 +125,9 @@ export class OpenCodeCli {
   private serverProc: { pid: number; kill(): void } | null = null;
   private serverPassword = "";
   private cwd = "";
+  private modelsCache: { data: string[]; ts: number } | null = null;
+  private agentsCache: { data: string[]; ts: number } | null = null;
+  private readonly CACHE_TTL = 60000;
 
   static setOutputChannel(ch: import("vscode").OutputChannel): void {
     OpenCodeCli.outputChannel = ch;
@@ -592,9 +595,12 @@ export class OpenCodeCli {
     }
   }
 
-  async listModels(): Promise<string[]> {
+  async listModels(forceRefresh = false): Promise<string[]> {
     try {
-      if (!this.client) { this.log("listModels: client is null"); return []; }
+      if (!forceRefresh && this.modelsCache && Date.now() - this.modelsCache.ts < this.CACHE_TTL) {
+        return this.modelsCache.data;
+      }
+      if (!this.client) { this.log("listModels: client is null, attempting reconnect..."); try { await this.ensureServerHealthy(); } catch {} if (!this.client) return []; }
       const result: any = await this.client.config.providers();
       const data: any = result.data;
       const error: any = result.error;
@@ -629,6 +635,7 @@ export class OpenCodeCli {
         }
       }
       this.log(`listModels: returning ${models.length} models`);
+      this.modelsCache = { data: models, ts: Date.now() };
       return models;
     } catch (e) {
       this.log(`listModels error: ${e}`);
@@ -638,7 +645,7 @@ export class OpenCodeCli {
 
   async getProviderInfo(): Promise<Array<{ id: string; name: string; key?: string; modelCount: number }>> {
     try {
-      if (!this.client) { this.log("getProviderInfo: client is null"); return []; }
+      if (!this.client) { this.log("getProviderInfo: client is null, attempting reconnect..."); try { await this.ensureServerHealthy(); } catch {} if (!this.client) return []; }
       const result = await this.client.config.providers();
       const data: any = result.data;
       if (!data) return [];
@@ -655,11 +662,17 @@ export class OpenCodeCli {
     }
   }
 
-  async listAgents(): Promise<string[]> {
+  async listAgents(forceRefresh = false): Promise<string[]> {
     try {
-      const result = await this.client!.app.agents();
+      if (!forceRefresh && this.agentsCache && Date.now() - this.agentsCache.ts < this.CACHE_TTL) {
+        return this.agentsCache.data;
+      }
+      if (!this.client) { this.log("listAgents: client is null"); return []; }
+      const result = await this.client.app.agents();
       const agents = result.data ?? [];
-      return agents.map((a: { name: string }) => a.name);
+      const names = agents.map((a: { name: string }) => a.name);
+      this.agentsCache = { data: names, ts: Date.now() };
+      return names;
     } catch (e) {
       this.log(`listAgents error: ${e}`);
       return [];
@@ -1102,6 +1115,11 @@ export class OpenCodeCli {
     } finally {
       try { await this.client!.session.delete({ path: { id: sessionId } }); } catch {}
     }
+  }
+
+  clearCaches(): void {
+    this.modelsCache = null;
+    this.agentsCache = null;
   }
 
   detach(): void {

@@ -102,7 +102,7 @@
         },
         "opencode-chat.autoFetchIntervalMs": {
           "type": "number",
-          "default": 500,
+          "default": 0,
           "minimum": 0,
           "description": "Polling interval in milliseconds as a fallback for auto-fetch. 0 = SSE only (instant, recommended). >0 = poll session list every N ms. Useful if SSE is unstable or you want explicit control."
         },
