@@ -2,6 +2,11 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.3.9] - 2026-06-25
+
+### Fixed
+- **TypeScript `HeadersInit` errors in `ensureServerHealthy()` and `listModels()` raw fetch** — same ternary pattern fix applied to remaining spots where optional auth headers caused `'Authorization' is incompatible with index signature`.
+
 ## [0.3.8] - 2026-06-25
 
 ### Fixed
