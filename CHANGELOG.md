@@ -2,6 +2,11 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.3.8] - 2026-06-25
+
+### Fixed
+- **TypeScript compilation error in strategy 3** — resolved `HeadersInit` type incompatibility where optional auth headers caused `'Authorization' is incompatible with index signature` during build.
+
 ## [0.3.7] - 2026-06-25
 
 ### Added
