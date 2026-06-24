@@ -1175,6 +1175,7 @@ class App {
   }
 
   private renderMessages(): void {
+    const wasAtBottom = this.isAtBottom();
     this.searchMatches = [];
     this.searchActiveIdx = -1;
     this.chatArea.innerHTML = "";
@@ -1200,7 +1201,7 @@ class App {
     for (const msg of this.state.messages) this.appendMessageDOM(msg);
     const smooth = this.pendingSmoothScroll;
     this.pendingSmoothScroll = false;
-    this.scrollToBottom(smooth);
+    this.scrollToBottom(smooth, wasAtBottom);
   }
 
   private isAtBottom(threshold = 80): boolean {
@@ -1208,8 +1209,8 @@ class App {
     return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
   }
 
-  private scrollToBottom(smooth: boolean): void {
-    if (!this.isAtBottom()) return;
+  private scrollToBottom(smooth: boolean, force = false): void {
+    if (!force && !smooth && !this.isAtBottom()) return;
     if (smooth) {
       this.chatArea.scrollTo({ top: this.chatArea.scrollHeight, behavior: "smooth" });
     } else {
@@ -1519,7 +1520,7 @@ class App {
     const emptyMsg = this.chatArea.querySelector(".empty");
     if (emptyMsg) emptyMsg.remove();
     this.chatArea.appendChild(div);
-    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+    this.scrollToBottom(false);
   }
 
   private showThinking(): void {
@@ -1552,7 +1553,7 @@ class App {
     this.chatArea.appendChild(this.streamingMsgEl);
     this.streamingBubble = bubble;
     this.streamingPartsEl = partsEl;
-    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+    this.scrollToBottom(false);
   }
 
   private ensureStreamingParts(): HTMLElement {
@@ -1602,7 +1603,7 @@ class App {
     }
     this.streamingTextEl.innerHTML = "";
     this.streamingTextEl.appendChild(renderMarkdown(this.streamingContent));
-    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+    this.scrollToBottom(false);
   }
 
   private appendStreamingReasoning(text: string): void {
@@ -1629,7 +1630,7 @@ class App {
     }
     this.streamingReasoningBodyEl.innerHTML = "";
     this.streamingReasoningBodyEl.appendChild(renderMarkdown(this.streamingReasoning));
-    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+    this.scrollToBottom(false);
   }
 
   private appendStreamingToolStart(name: string, input: unknown, partId: string): void {
@@ -1655,7 +1656,7 @@ class App {
     // when new tool starts, finalize any open text/reasoning blocks so next deltas create fresh ones
     this.streamingTextEl = null;
     this.streamingReasoningBodyEl = null;
-    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+    this.scrollToBottom(false);
   }
 
   private appendStreamingToolResult(partId: string, output: string, isError: boolean, name: string): void {
@@ -1699,7 +1700,7 @@ class App {
       details.appendChild(labelRow);
       details.appendChild(contentRow);
     }
-    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+    this.scrollToBottom(false);
   }
 
   private appendStreamingPart(part: Record<string, unknown>, type: string): void {
@@ -1789,7 +1790,7 @@ class App {
       // break current text/reasoning block so next deltas start fresh below this card
       this.streamingTextEl = null;
       this.streamingReasoningBodyEl = null;
-      this.chatArea.scrollTop = this.chatArea.scrollHeight;
+      this.scrollToBottom(false);
     }
   }
 
@@ -1800,7 +1801,7 @@ class App {
     const card = el("div", { className: "task-inline " + status });
     card.innerHTML = '<span class="dot"></span> ' + (desc || (status === "done" ? "Task complete" : "Running task..."));
     existing.appendChild(card);
-    this.chatArea.scrollTop = this.chatArea.scrollHeight;
+    this.scrollToBottom(false);
   }
 
   private finalizeStreaming(): void {
