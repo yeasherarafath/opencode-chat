@@ -2,6 +2,34 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.3.7] - 2026-06-25
+
+### Added
+- **Model/agent caching** — 60s in-memory cache for `listModels()` and `listAgents()` with `forceRefresh` param and `clearCaches()` method. Deduplicates redundant API calls on startup.
+- **Auto-fetch pauses during active chat** — `sendMessage()` calls `stopAutoFetch()` before the prompt and `startAutoFetch()` on exit, preventing polling interference while the AI is responding.
+- **AuthProxy HTML rewriting** — proxy now rewrites the opencode server's HTML responses, replacing absolute server URLs with proxy URLs so the Web GUI's API calls stay authenticated.
+- **`autoFetchIntervalMs` default changed to `0`** — SSE (server-sent events) is now the default; polling is opt-in.
+- **Debug logging for providers** — `getProviderInfo()` logs raw provider count and return count for easier troubleshooting.
+- **Webview-to-extension log relay** — the webview can now post `{ type: "log", message }` back to the extension output channel for debugging.
+
+### Fixed
+- **Server health probe killing healthy servers** — `ensureServerHealthy()` now includes Basic auth in its `/health` probe. Without auth, the server returned 401, the probe returned `false`, and `start()` was re-run, often connecting to the wrong server.
+- **Strategy 3 (existing server) missing auth** — when the extension connected to a pre-existing opencode server, it didn't pass auth headers, so API calls returned empty provider data.
+- **Concurrent `start()` calls** — added a `startingPromise` guard to prevent multiple `start()` invocations racing during initialization.
+- **Webview "ready" handler racing with `initialize()`** — the `ready` message now defers `sendInitialState()` until `initialize()` completes, preventing `ensureServerHealthy()` from killing the in-progress server spawn.
+- **Undeclared `savedScrollTop` variable** — `renderMessages()` referenced `savedScrollTop` without declaring it, which would crash when the user wasn't at the bottom during an auto-fetch refresh.
+- **Streaming reasoning closing scrolls to bottom** — `appendStreamingReasoning()` now accepts a `shouldScroll` parameter; when reasoning finishes (`</think>`), `false` is passed so the user isn't yanked away from the content they're reading.
+- **Visibility change destroys streaming state** — `sendInitialState(true)` from `onDidChangeVisibility` skips session message reloads, preserving the streaming DOM and scroll position when the user switches back to the extension tab.
+- **Scroll gap at bottom** — changed chat area from `py-6` (padding on both top and bottom) to `pt-6` (top only), removing the 24px bottom padding that created a visible space when scrolled to `scrollHeight`.
+- **`getProviderInfo()` returning empty despite server data** — added fallback raw fetch with correct auth and server URL to diagnose and handle the case where the SDK client returns empty data.
+- **`listModels()` raw fetch used stale port** — the debug raw fetch now uses the actual `serverUrl` instead of the un-updated `serverPort` (which defaulted to `4096` and hit the wrong server).
+
+### Changed
+- **Chat area padding** — `py-6` → `pt-6` to eliminate bottom padding gap at max scroll.
+- **Streaming scroll behavior** — reasoning completion no longer forces a scroll-to-bottom; text streaming after reasoning still scrolls normally.
+- **`scrollToBottom()` uses `requestAnimationFrame`** — ensures the scroll snap happens after the browser has laid out new content, eliminating the partial-bottom gap on auto-fetch refreshes.
+- **Proxy strips `accept-encoding`** — so the server sends uncompressed HTML, allowing the proxy to rewrite URLs in the body.
+
 ## [0.3.5] - 2026-06-24
 
 ### Added
