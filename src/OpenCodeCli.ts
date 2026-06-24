@@ -361,8 +361,8 @@ export class OpenCodeCli {
         try {
           // include auth in probe so 401 doesn't kill a healthy server
           const pwd = this.serverPassword;
-          const headers = pwd ? { Authorization: `Basic ${Buffer.from(`opencode:${pwd}`).toString("base64")}` } : {};
-          const res = await fetch(`${this.serverUrl}/health`, { signal: controller.signal, headers });
+          const init = pwd ? { signal: controller.signal, headers: { Authorization: `Basic ${Buffer.from(`opencode:${pwd}`).toString("base64")}` } } : { signal: controller.signal };
+          const res = await fetch(`${this.serverUrl}/health`, init);
           return res.ok;
         } finally {
           clearTimeout(timer);
@@ -630,7 +630,7 @@ export class OpenCodeCli {
           try {
             const pwd = this.serverPassword;
             const auth = pwd ? `Basic ${Buffer.from(`opencode:${pwd}`).toString("base64")}` : "";
-            const raw = await fetch(`${this.serverUrl}/config/providers`, { headers: auth ? { Authorization: auth } : {} });
+            const raw = await fetch(`${this.serverUrl}/config/providers`, auth ? { headers: { Authorization: auth } } : {});
             const text = await raw.text();
             this.log(`listModels: direct fetch status=${raw.status}, body=${text.slice(0, 800)}`);
           } catch (e2) {
