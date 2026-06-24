@@ -128,6 +128,7 @@ export class OpenCodeCli {
   private modelsCache: { data: string[]; ts: number } | null = null;
   private agentsCache: { data: string[]; ts: number } | null = null;
   private readonly CACHE_TTL = 60000;
+  private startingPromise: Promise<boolean> | null = null;
 
   static setOutputChannel(ch: import("vscode").OutputChannel): void {
     OpenCodeCli.outputChannel = ch;
@@ -231,6 +232,19 @@ export class OpenCodeCli {
   }
 
   async start(): Promise<boolean> {
+    if (this.startingPromise) {
+      this.log("start: concurrent call detected, waiting for existing start...");
+      return this.startingPromise;
+    }
+    this.startingPromise = this.startImpl();
+    try {
+      return await this.startingPromise;
+    } finally {
+      this.startingPromise = null;
+    }
+  }
+
+  private async startImpl(): Promise<boolean> {
     const hostname = this.serverHostname;
     const port = this.serverPort;
     const timeout = this.serverTimeout;
@@ -290,10 +304,16 @@ export class OpenCodeCli {
     try {
       const url = `http://${hostname}:${port}`;
       this.log(`start: trying existing server at ${url}`);
-      const res = await fetch(`${url}/health`);
+      const pwd = this.serverPassword;
+      const authHeader = pwd ? `Basic ${Buffer.from(`opencode:${pwd}`).toString("base64")}` : "";
+      const init: RequestInit & { headers?: Record<string, string> } = {};
+      if (authHeader) init.headers = { Authorization: authHeader };
+      const res = await fetch(`${url}/health`, init);
       if (res.ok) {
         this.serverUrl = url;
-        this.client = createOpencodeClient({ baseUrl: url }) as import("@opencode-ai/sdk/client").OpencodeClient;
+        const opts: Record<string, unknown> = { baseUrl: url };
+        if (authHeader) opts.headers = { Authorization: authHeader };
+        this.client = createOpencodeClient(opts) as import("@opencode-ai/sdk/client").OpencodeClient;
         this.log("start: connected to existing server");
         return true;
       }
@@ -335,17 +355,17 @@ export class OpenCodeCli {
    * server. Returns true when a working client is available.
    */
   async ensureServerHealthy(): Promise<boolean> {
-    // a "healthy" server here means TCP-reachable. The /health endpoint may
-    // return 401/403 because the spawned server requires Basic auth — any HTTP
-    // response (success or auth-rejection) still proves the process is alive.
     const probe = async (): Promise<boolean> => {
       if (!this.client || !this.serverUrl) return false;
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 2000);
         try {
-          await fetch(`${this.serverUrl}/health`, { signal: controller.signal });
-          return true;
+          // include auth in probe so 401 doesn't kill a healthy server
+          const pwd = this.serverPassword;
+          const headers = pwd ? { Authorization: `Basic ${Buffer.from(`opencode:${pwd}`).toString("base64")}` } : {};
+          const res = await fetch(`${this.serverUrl}/health`, { signal: controller.signal, headers });
+          return res.ok;
         } finally {
           clearTimeout(timer);
         }
@@ -604,16 +624,20 @@ export class OpenCodeCli {
       const result: any = await this.client.config.providers();
       const data: any = result.data;
       const error: any = result.error;
-      this.log(`listModels: typeof data=${typeof data}, error=${typeof error !== "undefined"}, response status=${result.response?.status}`);
-      if (error) this.log(`listModels: error=${JSON.stringify(error).slice(0, 300)}`);
+      this.log(`listModels: serverUrl=${this.serverUrl}, status=${result.response?.status}, data=${typeof data}, error=${typeof error !== "undefined"}`);
+      if (error) this.log(`listModels: error=${JSON.stringify(error).slice(0, 500)}`);
       if (!data) {
-        // try fetching directly to debug
-        try {
-          const raw = await fetch(`http://${this.serverHostname}:${this.serverPort}/config/providers`);
-          const text = await raw.text();
-          this.log(`listModels: raw fetch status=${raw.status}, body=${text.slice(0, 500)}`);
-        } catch (e2) {
-          this.log(`listModels: raw fetch also failed: ${e2}`);
+        // try direct fetch with auth to the actual server URL
+        if (this.serverUrl) {
+          try {
+            const pwd = this.serverPassword;
+            const auth = pwd ? `Basic ${Buffer.from(`opencode:${pwd}`).toString("base64")}` : "";
+            const raw = await fetch(`${this.serverUrl}/config/providers`, { headers: auth ? { Authorization: auth } : {} });
+            const text = await raw.text();
+            this.log(`listModels: direct fetch status=${raw.status}, body=${text.slice(0, 800)}`);
+          } catch (e2) {
+            this.log(`listModels: direct fetch failed: ${e2}`);
+          }
         }
         return [];
       }
@@ -648,14 +672,20 @@ export class OpenCodeCli {
       if (!this.client) { this.log("getProviderInfo: client is null, attempting reconnect..."); try { await this.ensureServerHealthy(); } catch {} if (!this.client) return []; }
       const result = await this.client.config.providers();
       const data: any = result.data;
-      if (!data) return [];
+      const error: any = result.error;
+      this.log(`getProviderInfo: serverUrl=${this.serverUrl}, status=${result.response?.status}, data=${typeof data}, error=${typeof error !== "undefined"}`);
+      if (error) this.log(`getProviderInfo: error=${JSON.stringify(error).slice(0, 500)}`);
+      if (!data) { this.log("getProviderInfo: data is null/undefined"); return []; }
       const providers: any[] = Array.isArray(data) ? data : (data.providers ?? []);
-      return providers.map(p => ({
+      this.log(`getProviderInfo: ${providers.length} providers raw`);
+      const result = providers.map(p => ({
         id: p.id,
         name: p.name,
         key: p.key,
         modelCount: p.models ? Object.keys(p.models).length : 0,
       }));
+      this.log(`getProviderInfo: returning ${result.length} providers`);
+      return result;
     } catch (e) {
       this.log(`getProviderInfo error: ${e}`);
       return [];

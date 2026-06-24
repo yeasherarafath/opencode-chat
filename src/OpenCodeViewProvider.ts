@@ -79,6 +79,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
       }
     });
     this.startAutoFetch();
+    this.initialized = true;
     this.log("initialize() done");
   }
 
@@ -121,7 +122,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     webviewView.onDidChangeVisibility(() => {
       this.log(`onDidChangeVisibility: visible=${webviewView.visible}`);
       if (webviewView.visible) {
-        this.sendInitialState().catch((e) => this.log(`sendInitialState(onVisible) error: ${e}`));
+        this.sendInitialState(true).catch((e) => this.log(`sendInitialState(onVisible) error: ${e}`));
       }
     });
   }
@@ -137,6 +138,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
   private autoFetchDebounce: NodeJS.Timeout | null = null;
   private autoFetchConfigSub: vscode.Disposable | null = null;
   private configChangeSub: vscode.Disposable | null = null;
+  private initialized = false;
 
   private async handleMessage(message: Record<string, unknown>): Promise<void> {
     if (!this.view) { this.log("handleMessage: no view, returning"); return; }
@@ -147,6 +149,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
       switch (type) {
         case "ready": {
           this.log("handleMessage: ready -> sendInitialState");
+          if (!this.initialized) { this.log("ready: deferring until initialize() completes"); return; }
           try {
             const editor = vscode.window.activeTextEditor;
             if (editor) this.view.webview.postMessage({ type: "active-file", path: editor.document.uri.fsPath });
@@ -486,7 +489,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async sendInitialState(): Promise<void> {
+  private async sendInitialState(skipSessionReload = false): Promise<void> {
     if (!this.view) { this.log("sendInitialState: no view, skip"); return; }
     const cfg = vscode.workspace.getConfiguration("opencode-chat");
     const defaultModel = cfg.get<string>("defaultModel") || "";
@@ -503,7 +506,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     if (!this.isInstalled) { this.log("sendInitialState: not installed, skip refresh"); return; }
     this.log("sendInitialState: refreshing sessions/models/agents");
     try {
-      await Promise.all([this.refreshSessions(), this.refreshModels(), this.refreshAgents()]);
+      await Promise.all([this.refreshSessions(skipSessionReload), this.refreshModels(), this.refreshAgents()]);
       this.log("sendInitialState: refresh done");
     } catch (e) {
       this.log(`sendInitialState: refresh failed: ${e}`);
@@ -533,14 +536,14 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async refreshSessions(): Promise<void> {
+  private async refreshSessions(skipReload = false): Promise<void> {
     if (!this.view) { this.log("refreshSessions: no view, skip"); return; }
     this.log("refreshSessions");
     try {
       const sessions = await this.cli.listSessions();
       this.log(`refreshSessions: got ${sessions.length} sessions`);
       this.view.webview.postMessage({ type: "sessions", sessions });
-      if (this.currentSessionId) {
+      if (!skipReload && this.currentSessionId) {
         const current = sessions.find(s => s.id === this.currentSessionId);
         if (current && current.updated_at !== this.currentSessionUpdatedAt) {
           this.log(`refreshSessions: session ${this.currentSessionId} updated, reloading messages`);

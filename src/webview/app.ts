@@ -417,7 +417,7 @@ class App {
     };
     this.searchBarEl.append(this.searchInput, searchClose, searchUp, searchDown, this.searchNavEl);
 
-    this.chatArea = el("div", { className: "flex-1 overflow-y-auto px-3 py-6 flex flex-col gap-5 overflow-x-hidden" });
+    this.chatArea = el("div", { className: "flex-1 overflow-y-auto px-3 pt-6 flex flex-col gap-5 overflow-x-hidden" });
     const inputArea = this.createInputArea();
     const statusBar = this.createStatusBar();
     this.overlayEl = el("div", { className: "fixed inset-0 bg-black/50 z-200 flex items-center justify-center backdrop-blur-sm hidden" });
@@ -1176,6 +1176,7 @@ class App {
 
   private renderMessages(): void {
     const wasAtBottom = this.isAtBottom();
+    const savedScrollTop = this.chatArea.scrollTop;
     this.searchMatches = [];
     this.searchActiveIdx = -1;
     this.chatArea.innerHTML = "";
@@ -1189,7 +1190,6 @@ class App {
         const card = el("div", { className: "session-loading" });
         card.innerHTML = '<span class="spinner"></span> Loading chat...';
         this.chatArea.appendChild(card);
-        this.scrollToBottom(false);
         return;
       }
       this.chatArea.appendChild(el("div", { className: "empty" }, [
@@ -1201,7 +1201,18 @@ class App {
     for (const msg of this.state.messages) this.appendMessageDOM(msg);
     const smooth = this.pendingSmoothScroll;
     this.pendingSmoothScroll = false;
-    this.scrollToBottom(smooth, wasAtBottom);
+    if (smooth || wasAtBottom) {
+      if (smooth) {
+        this.chatArea.scrollTo({ top: this.chatArea.scrollHeight, behavior: "smooth" });
+      } else {
+        this.chatArea.scrollTop = this.chatArea.scrollHeight;
+        requestAnimationFrame(() => {
+          this.chatArea.scrollTop = this.chatArea.scrollHeight;
+        });
+      }
+    } else if (savedScrollTop > 0) {
+      this.chatArea.scrollTop = Math.min(savedScrollTop, this.chatArea.scrollHeight);
+    }
   }
 
   private isAtBottom(threshold = 80): boolean {
@@ -1209,12 +1220,14 @@ class App {
     return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
   }
 
-  private scrollToBottom(smooth: boolean, force = false): void {
-    if (!force && !smooth && !this.isAtBottom()) return;
+  private scrollToBottom(smooth: boolean): void {
+    if (!smooth && !this.isAtBottom()) return;
     if (smooth) {
       this.chatArea.scrollTo({ top: this.chatArea.scrollHeight, behavior: "smooth" });
     } else {
-      this.chatArea.scrollTop = this.chatArea.scrollHeight;
+      const snap = () => { this.chatArea.scrollTop = this.chatArea.scrollHeight; };
+      snap();
+      requestAnimationFrame(snap);
     }
   }
 
@@ -1520,7 +1533,6 @@ class App {
     const emptyMsg = this.chatArea.querySelector(".empty");
     if (emptyMsg) emptyMsg.remove();
     this.chatArea.appendChild(div);
-    this.scrollToBottom(false);
   }
 
   private showThinking(): void {
@@ -1575,7 +1587,7 @@ class App {
           this.appendStreamingReasoning(buf);
           buf = "";
         } else {
-          this.appendStreamingReasoning(buf.slice(0, closeIdx));
+          this.appendStreamingReasoning(buf.slice(0, closeIdx), false);
           buf = buf.slice(closeIdx + "</think>".length);
           this.streamingThinkOpen = false;
         }
@@ -1606,7 +1618,7 @@ class App {
     this.scrollToBottom(false);
   }
 
-  private appendStreamingReasoning(text: string): void {
+  private appendStreamingReasoning(text: string, shouldScroll = true): void {
     if (!text) return;
     this.ensureStreamingParts();
     this.streamingReasoning += text;
@@ -1630,7 +1642,7 @@ class App {
     }
     this.streamingReasoningBodyEl.innerHTML = "";
     this.streamingReasoningBodyEl.appendChild(renderMarkdown(this.streamingReasoning));
-    this.scrollToBottom(false);
+    if (shouldScroll) this.scrollToBottom(false);
   }
 
   private appendStreamingToolStart(name: string, input: unknown, partId: string): void {
@@ -2596,6 +2608,7 @@ class App {
             this.state.messages.push(newMsg);
             this.finalizeStreaming();
             this.appendMessageDOM(newMsg);
+            if (this.isAtBottom()) this.scrollToBottom(false);
           }
           this.updateTokenDisplay();
         } else if (text) {
