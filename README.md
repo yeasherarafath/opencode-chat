@@ -19,6 +19,9 @@ Compatible with VS Code, VSCodium, Cursor, Windsurf, and any editor supporting t
 ![Easy current file pick](media/easy-current-file-pick.png)
 *Attach workspace files via @ mention menu or attachment icon*
 
+![Right-click file with line mention](media/right-click-file-with-line-mention.png)
+*Right-click a file in the editor/explorer to insert it with line number into your message*
+
 ## Features
 
 ### Core

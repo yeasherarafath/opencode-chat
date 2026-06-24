@@ -2,6 +2,11 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.3.10] - 2026-06-25
+
+### Added
+- **Right-click file with line mention screenshot** — new image in `media/` and README showing how to right-click a file in the editor/explorer to insert it with line number into a message.
+
 ## [0.3.9] - 2026-06-25
 
 ### Fixed
