@@ -6,7 +6,6 @@ export class AuthProxy {
   private port = 0;
   private authHeader = "";
   private targetUrlStr = "";
-  private proxyUrlStr = "";
 
   async start(targetUrl: string, username: string, password: string): Promise<string> {
     if (this.server) return this.proxyUrl();
@@ -118,7 +117,6 @@ export class AuthProxy {
         const addr = server.address();
         if (addr && typeof addr === "object") {
           this.port = addr.port;
-          this.proxyUrlStr = this.proxyUrl().replace(/\/+$/, "");
           JsonLogger.log("meta", { event: "AuthProxy-start", port: this.port, target: targetUrl });
           resolve(this.proxyUrl());
         } else {
@@ -155,7 +153,6 @@ export class AuthProxy {
       this.port = 0;
       this.authHeader = "";
       this.targetUrlStr = "";
-      this.proxyUrlStr = "";
     }
   }
 
