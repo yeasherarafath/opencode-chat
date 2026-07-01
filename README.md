@@ -9,24 +9,50 @@ Compatible with VS Code, VSCodium, Cursor, Windsurf, and any editor supporting t
 
 ## Screenshots
 
-<table>
-  <tr>
-    <td width="50%"><em>Chat with agent modes, model selection, streaming responses</em><br><img src="media/chat.png" width="100%" alt="Chat interface"></td>
-    <td width="50%"><em>Session history — continue or start new chat</em><br><img src="media/landing.png" width="100%" alt="Landing page"></td>
-  </tr>
-  <tr>
-    <td><em>AI commit message from staged/unstaged git diff</em><br><img src="media/ai-commit-message-generator.png" width="100%" alt="AI Commit Message Generator"></td>
-    <td><em>Attach files via @ mention menu or attachment icon</em><br><img src="media/easy-current-file-pick.png" width="100%" alt="Easy current file pick"></td>
-  </tr>
-  <tr>
-    <td><em>Right-click file in explorer → insert with line number</em><br><img src="media/right-click-file-with-line-mention.png" width="100%" alt="Right-click file with line mention"></td>
-    <td><em>OpenCode Web GUI as editor tab — same as desktop app</em><br><img src="media/build-in-opencode-web-gui-like-desktop-in-vscode.png" width="100%" alt="Web GUI inside VS Code"></td>
-  </tr>
-  <tr>
-    <td><em>Desktop GUI in VS Code sidebar</em><br><img src="media/opencode-desktop-gui-like-desktop-in-vscode.png" width="100%" alt="Desktop GUI in sidebar"></td>
-    <td><em>Settings panel — desktop-style inside VS Code</em><br><img src="media/all-setting-like-opencode-desktop.png" width="100%" alt="Settings like desktop"></td>
-  </tr>
-</table>
+### Chat Interface
+Chat with agent modes, model selection, and streaming responses.
+
+![Chat interface](media/chat.png)
+
+### Session History
+Select old chat to continue or start new chat.
+
+![Landing page](media/landing.png)
+
+### AI Commit Message
+Generate conventional commit messages from staged/unstaged git diff.
+
+![AI Commit Message Generator](media/ai-commit-message-generator.png)
+
+### File Attachment
+Attach workspace files via @ mention menu or attachment icon.
+
+![Easy current file pick](media/easy-current-file-pick.png)
+
+### Right-Click File Mention
+Right-click a file in the editor/explorer to insert it with line number into your message.
+
+![Right-click file with line mention](media/right-click-file-with-line-mention.png)
+
+### File Search via @ Mention
+Search and include workspace files directly in your chat via @ mention menu.
+
+![File search by @ and include on chat](media/file-search-by-@-and-include-file-on-chat.png)
+
+### Web GUI in Editor Tab
+OpenCode Web GUI inside VS Code — same experience as the desktop app.
+
+![Web GUI in VS Code](media/build-in-opencode-web-gui-like-desktop-in-vscode.png)
+
+### Desktop GUI in Sidebar
+Full desktop interface rendered inside VS Code sidebar.
+
+![Desktop GUI in sidebar](media/opencode-desktop-gui-like-desktop-in-vscode.png)
+
+### Desktop-Style Settings
+All configuration in a settings panel that looks like the OpenCode desktop.
+
+![Settings like desktop](media/all-setting-like-opencode-desktop.png)
 
 ## Features
 
@@ -341,6 +367,10 @@ Found a bug or have a feature request? Open an [issue](https://github.com/yeashe
 ### License
 
 By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+
+## Disclaimer
+
+This extension is not built by the OpenCode team and is not affiliated with or endorsed by them. "OpenCode" is a trademark of its respective owner. This is an independent project that provides a chat UI for the OpenCode CLI.
 
 ## Privacy
 
