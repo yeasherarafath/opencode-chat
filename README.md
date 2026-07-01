@@ -7,6 +7,21 @@ A full-featured chat UI for [OpenCode](https://opencode.ai) — the AI coding ag
 
 Compatible with VS Code, VSCodium, Cursor, Windsurf, and any editor supporting the VS Code extension protocol. Install from the VS Marketplace or Open VSX — non-VS Code editors should use the Open VSX link.
 
+## Table of Contents
+
+- [Screenshots](#screenshots)
+- [Features](#features)
+- [Why OpenCode Chat](#why-opencode-chat)
+- [Requirements](#requirements)
+- [Usage](#usage)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Reporting Issues](#reporting-issues)
+- [Disclaimer](#disclaimer)
+- [Privacy](#privacy)
+- [License](#license)
+
 ## Screenshots
 
 ### Chat Interface
