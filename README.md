@@ -7,20 +7,26 @@ A full-featured chat UI for [OpenCode](https://opencode.ai) — the AI coding ag
 
 Compatible with VS Code, VSCodium, Cursor, Windsurf, and any editor supporting the VS Code extension protocol. Install from the VS Marketplace or Open VSX — non-VS Code editors should use the Open VSX link.
 
-![Chat interface](media/chat.png)
-*Chat with agent modes, model selection, and streaming responses*
+## Screenshots
 
-![Landing page](media/landing.png)
-*Select old chat to continue or start new chat*
-
-![AI Commit Message Generator](media/ai-commit-message-generator.png)
-*Generate conventional commit messages from staged/unstaged git diff*
-
-![Easy current file pick](media/easy-current-file-pick.png)
-*Attach workspace files via @ mention menu or attachment icon*
-
-![Right-click file with line mention](media/right-click-file-with-line-mention.png)
-*Right-click a file in the editor/explorer to insert it with line number into your message*
+<table>
+  <tr>
+    <td width="50%"><em>Chat with agent modes, model selection, streaming responses</em><br><img src="media/chat.png" width="100%" alt="Chat interface"></td>
+    <td width="50%"><em>Session history — continue or start new chat</em><br><img src="media/landing.png" width="100%" alt="Landing page"></td>
+  </tr>
+  <tr>
+    <td><em>AI commit message from staged/unstaged git diff</em><br><img src="media/ai-commit-message-generator.png" width="100%" alt="AI Commit Message Generator"></td>
+    <td><em>Attach files via @ mention menu or attachment icon</em><br><img src="media/easy-current-file-pick.png" width="100%" alt="Easy current file pick"></td>
+  </tr>
+  <tr>
+    <td><em>Right-click file in explorer → insert with line number</em><br><img src="media/right-click-file-with-line-mention.png" width="100%" alt="Right-click file with line mention"></td>
+    <td><em>OpenCode Web GUI as editor tab — same as desktop app</em><br><img src="media/build-in-opencode-web-gui-like-desktop-in-vscode.png" width="100%" alt="Web GUI inside VS Code"></td>
+  </tr>
+  <tr>
+    <td><em>Desktop GUI in VS Code sidebar</em><br><img src="media/opencode-desktop-gui-like-desktop-in-vscode.png" width="100%" alt="Desktop GUI in sidebar"></td>
+    <td><em>Settings panel — desktop-style inside VS Code</em><br><img src="media/all-setting-like-opencode-desktop.png" width="100%" alt="Settings like desktop"></td>
+  </tr>
+</table>
 
 ## Features
 
@@ -41,7 +47,7 @@ Compatible with VS Code, VSCodium, Cursor, Windsurf, and any editor supporting t
 - **Summarize** — Compact session history
 - **Export** — Export any session as JSON; save the file with the modal's built-in Save button or copy to clipboard
 - **Import** — Pick a session JSON file; the contents are shown in a viewer and a new session with the imported title is added to the list
-- **Open Web GUI** — Launch the opencode web UI in a custom editor tab (with auth handled transparently)
+- **Open Web GUI** — Launch the full opencode desktop UI inside VS Code as a custom editor tab (same experience as standalone desktop app, auth handled transparently)
 - **Delete** — Remove unwanted sessions
 - **New Chat** — Start fresh conversations with a single click
 
@@ -80,6 +86,7 @@ Beyond the feature list, here's what makes this extension feel different to use.
 ### See the AI think
 - **Live reasoning stream** — watch the model's chain-of-thought unfold in a collapsible card right next to its answer, token by token.
 - **Streaming that just works** — text flows in as the model generates it, with no flicker, no re-renders, no dropped chunks on busy agents.
+- **Abort anytime** — stop a running response instantly mid-stream. Full control.
 - **Effort presets** — one-click switch between Balanced, High, Max, Minimal, Medium, and Low to trade speed for depth.
 
 ### Know what you're spending
@@ -93,7 +100,9 @@ Beyond the feature list, here's what makes this extension feel different to use.
 - **Today / Yesterday / Earlier grouping** with a quick search box, plus inline Rename, Diff, Fork, Summarize, Delete, and an Export on every row.
 - **One-click export** — any session becomes a portable JSON file with a built-in Save dialog and copy-to-clipboard.
 - **Import any session JSON** — pick a file, the title is read from the JSON, and a new session appears in your list ready to continue.
-- **Open the full web GUI in-editor** — the Globe icon launches the opencode web UI in a custom editor tab; an auth-injecting proxy handles the server's Basic auth behind the scenes so the UI loads without manual login.
+- **Open the full web GUI in-editor** — the Globe icon launches the opencode desktop UI in a custom editor tab; same interface as the standalone desktop app. An auth-injecting proxy handles the server's Basic auth behind the scenes so the UI loads without manual login.
+- **New Chat** — start a fresh conversation in one click from anywhere.
+- **Fork from message** — branch a session from any specific message, not just at the session level.
 
 ### Just works on Windows, Mac, and Linux
 - **Smart binary detection** — finds the `opencode` CLI whether it lives in `PATH`, in the npm global folder, or anywhere you point it via settings. No more "command not found" on fresh Windows installs.
@@ -112,14 +121,18 @@ Beyond the feature list, here's what makes this extension feel different to use.
 - **In-chat question cards** — when the agent needs your input, options appear as buttons with a "type your own" box.
 - **Search inside a chat** — `Ctrl/Cmd+F` opens a search bar with up/down match navigation and a live count.
 - **Copy or revert any message** — one click to copy assistant text, or roll a user message back to a previous version.
+- **Generate commit messages** — analyze staged (or unstaged) git diff and write a conventional commit message directly into SCM input, with clipboard fallback.
 
-### Code, in context
+### Code and content, in context
+- **Full markdown rendering** — tables, lists, headings, images, links, and formatting all render inline. No missing pieces.
+- **Inline file display** — attached files render with language labels and syntax highlighting right in the chat.
 - **Session diff viewer** — see every file the agent changed with add/delete counts.
 - **Beautiful code blocks** — copy buttons on every block, plus syntax highlighting for 40+ languages (no external CDN, no tracking).
 - **Inline tool cards** — running and completed tool calls show up right inside the chat with titles and how long they took.
 
-### Pick a model without the friction
+### Pick a model and agent without the friction
 - **Searchable model picker** grouped by provider, with a little dot showing whether your API key is set.
+- **One-click agent switching** — flip between Plan, Build, Review, and any custom agent from the toolbar.
 - **Providers panel** — one glance at every configured provider, its key status, and how many models it offers.
 - **Works with any provider** — anything the opencode CLI knows about is available; no provider code lives in the extension.
 
@@ -128,6 +141,10 @@ Beyond the feature list, here's what makes this extension feel different to use.
 - **Settings react live** — tweak auto-fetch and the sidebar updates without a reload.
 - **Hardened webview** — scripts run with a nonce, no inline JS, no remote sources.
 - **No webview framework** — vanilla TypeScript + Tailwind means fast load and no framework upgrade churn.
+
+### Looks like it belongs
+- **Dark theme** — custom dark design that matches VS Code aesthetics. No light-mode flash, no mismatched colors.
+- **Responsive layout** — adapts to any sidebar width with a scrollable chat area. Narrow sidebar? Still works.
 
 ### Local-first privacy
 - **100% local** — the extension just shells out to your `opencode` binary. No telemetry, no relay, no middleman.
