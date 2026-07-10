@@ -1,7 +1,7 @@
 {
   "name": "opencode-ai-chat",
   "displayName": "OpenCode AI Chat",
-  "description": "Full-featured chat UI for OpenCode AI coding agent in VS Code sidebar",
+  "description": "Full-featured chat UI for OpenCode AI coding agent in VS Code, VS Codium, and compatible editors",
   "version": "0.3.11",
   "publisher": "YasirArafat",
   "author": {
@@ -28,15 +28,24 @@
   ],
   "keywords": [
     "opencode",
-    "ai",
-    "chat",
+    "opencode ai",
+    "opencode chat",
+    "ai chat",
     "coding agent",
     "copilot",
     "llm",
     "code generation",
     "code review",
+    "ai assistant",
+    "code assistant",
+    "agent",
+    "sidebar",
     "cli",
-    "sidebar"
+    "vscodium",
+    "cursor",
+    "windsurf",
+    "ai coding",
+    "developer tools"
   ],
   "icon": "media/icon.png",
   "galleryBanner": {

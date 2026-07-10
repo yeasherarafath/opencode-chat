@@ -27,27 +27,27 @@ Compatible with VS Code, VSCodium, Cursor, Windsurf, and any editor supporting t
 ### Chat Interface
 Chat with agent modes, model selection, and streaming responses.
 
-![Chat interface](media/chat.png)
+![Chat interface](media/chat.webp)
 
 ### Session History
 Select old chat to continue or start new chat.
 
-![Landing page](media/landing.png)
+![Landing page](media/landing.webp)
 
 ### AI Commit Message
 Generate conventional commit messages from staged/unstaged git diff.
 
-![AI Commit Message Generator](media/ai-commit-message-generator.png)
+![AI Commit Message Generator](media/ai-commit-message-generator.webp)
 
 ### File Attachment
 Attach workspace files via @ mention menu or attachment icon.
 
-![Easy current file pick](media/easy-current-file-pick.png)
+![Easy current file pick](media/easy-current-file-pick.webp)
 
 ### Right-Click File Mention
 Right-click a file in the editor/explorer to insert it with line number into your message.
 
-![Right-click file with line mention](media/right-click-file-with-line-mention.png)
+![Right-click file with line mention](media/right-click-file-with-line-mention.webp)
 
 ### File Search via @ Mention
 Search and include workspace files directly in your chat via @ mention menu.
@@ -55,12 +55,12 @@ Search and include workspace files directly in your chat via @ mention menu.
 ![File search by @ and include on chat](media/file-search-by-@-and-include-file-on-chat.png)
 
 ### Web GUI in Editor Tab
-OpenCode Web GUI inside VS Code — same experience as the desktop app.
+OpenCode Web GUI inside your editor — same experience as the desktop app.
 
-![Web GUI in VS Code](media/build-in-opencode-web-gui-like-desktop-in-vscode.png)
+![Web GUI in editor](media/build-in-opencode-web-gui-like-desktop-in-vscode.png)
 
 ### Desktop GUI in Sidebar
-Full desktop interface rendered inside VS Code sidebar.
+Full desktop interface rendered inside your editor sidebar.
 
 ![Desktop GUI in sidebar](media/opencode-desktop-gui-like-desktop-in-vscode.png)
 
@@ -88,7 +88,7 @@ All configuration in a settings panel that looks like the OpenCode desktop.
 - **Summarize** — Compact session history
 - **Export** — Export any session as JSON; save the file with the modal's built-in Save button or copy to clipboard
 - **Import** — Pick a session JSON file; the contents are shown in a viewer and a new session with the imported title is added to the list
-- **Open Web GUI** — Launch the full opencode desktop UI inside VS Code as a custom editor tab (same experience as standalone desktop app, auth handled transparently)
+- **Open Web GUI** — Launch the full opencode desktop UI inside your editor as a custom editor tab (same experience as standalone desktop app, auth handled transparently)
 - **Delete** — Remove unwanted sessions
 - **New Chat** — Start fresh conversations with a single click
 
@@ -112,7 +112,7 @@ All configuration in a settings panel that looks like the OpenCode desktop.
 - **Token & Cost Tracking** — Token usage and cost per message, displayed in the status bar
 - **File Display** — Inline file content rendering with language labels
 - **Session State Info** — Modal showing CLI status, version, session IDs, model, agent, and more
-- **Dark Theme** — Custom dark design that matches VS Code aesthetics
+- **Dark Theme** — Custom dark design that matches your editor's aesthetics
 - **Responsive Layout** — Adapts to sidebar width with scrollable chat area
 
 ### Provider Management
@@ -147,14 +147,14 @@ Beyond the feature list, here's what makes this extension feel different to use.
 
 ### Just works on Windows, Mac, and Linux
 - **Smart binary detection** — finds the `opencode` CLI whether it lives in `PATH`, in the npm global folder, or anywhere you point it via settings. No more "command not found" on fresh Windows installs.
-- **No orphaned processes** — when VS Code closes, the entire server tree (including MCP and LSP children) is cleaned up.
+- **No orphaned processes** — when the editor closes, the entire server tree (including MCP and LSP children) is cleaned up.
 - **Self-healing connection** — if the server hiccups, the extension quietly brings it back without you noticing.
 
 ### Server you can trust
 - **Per-session password** — each spawn uses a fresh random password; nothing hardcoded.
 - **No port collisions** — the server picks its own port and reports the real URL back.
 - **Pure mode** — turn off plugins for a leaner, lighter setup on low-memory machines.
-- **Keep the server alive between windows** — a single setting decides whether VS Code fully shuts it down on close.
+- **Keep the server alive between windows** — a single setting decides whether the editor fully shuts it down on close.
 
 ### Input box that helps you move faster
 - **Slash command palette** — 15+ built-ins like `/diff`, `/fork`, `/share`, `/review`, `/sessions`, `/mcps`, `/skills`, browsable with arrow keys.
@@ -184,7 +184,7 @@ Beyond the feature list, here's what makes this extension feel different to use.
 - **No webview framework** — vanilla TypeScript + Tailwind means fast load and no framework upgrade churn.
 
 ### Looks like it belongs
-- **Dark theme** — custom dark design that matches VS Code aesthetics. No light-mode flash, no mismatched colors.
+- **Dark theme** — custom dark design that matches your editor's aesthetics. No light-mode flash, no mismatched colors.
 - **Responsive layout** — adapts to any sidebar width with a scrollable chat area. Narrow sidebar? Still works.
 
 ### Local-first privacy
@@ -276,7 +276,7 @@ Type `@` in the input to browse and attach workspace files to your message. You 
 | `opencode-chat.serverHostname` | `127.0.0.1` | Hostname to bind the opencode server to. |
 | `opencode-chat.serverTimeout` | `15000` | Max milliseconds to wait for the opencode server to start. |
 | `opencode-chat.pureMode` | `false` | Run opencode in pure mode (no external plugins). Reduces subprocess count and memory usage. |
-| `opencode-chat.cleanupOnDeactivate` | `true` | Kill the opencode server process tree when VS Code closes or the extension deactivates. Prevents orphaned processes. |
+| `opencode-chat.cleanupOnDeactivate` | `true` | Kill the opencode server process tree when the editor closes or the extension deactivates. Prevents orphaned processes. |
 | `opencode-chat.autoFetchSessions` | `true` | Auto-detect chat sessions created from the opencode CLI and show them in the webview session list. When disabled, only webview-created sessions appear until manual refresh. |
 | `opencode-chat.autoFetchIntervalMs` | `0` | Polling interval in milliseconds as a fallback for auto-fetch. `0` = SSE only (instant, recommended). `>0` = poll session list every N ms. Useful if SSE is unstable or you want explicit control. |
 | `opencode-chat.enableJsonLogs` | `false` | Write raw SSE events, dispatched cli events, and webview messages as NDJSON for debugging. Off by default — enable only when troubleshooting. |

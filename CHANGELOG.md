@@ -53,7 +53,7 @@ All notable changes to the OpenCode Chat extension are documented here.
 
 ### Fixed
 - **Auto-fetch polling now reconnects** — `pollSessions` and `subscribeGlobalEvents` call `ensureServerHealthy()` when `this.client` is null, instead of silently spinning in a failed loop forever.
-- **Line number in editor context menu** — robustly handles both `vscode.Uri` and `{ resource: vscode.Uri }` arg formats from different VS Code versions.
+- **Line number in editor context menu** — robustly handles both `vscode.Uri` and `{ resource: vscode.Uri }` arg formats from different editor versions.
 - **Sidebar closed → pre-fill text lost** — `setInputText` stores pending text and delivers it when the webview sends `"ready"`, so the file reference appears even if the sidebar was hidden.
 
 ### Changed
