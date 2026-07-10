@@ -1613,9 +1613,10 @@ class App {
       this.streamingTextEl = el("div", { className: "text streaming-text" });
       this.streamingPartsEl.appendChild(this.streamingTextEl);
     }
+    const wasAtBottom = this.isAtBottom();
     this.streamingTextEl.innerHTML = "";
     this.streamingTextEl.appendChild(renderMarkdown(this.streamingContent));
-    this.scrollToBottom(false);
+    if (wasAtBottom) this.scrollToBottom(false);
   }
 
   private appendStreamingReasoning(text: string, shouldScroll = true): void {
@@ -1640,9 +1641,10 @@ class App {
       this.streamingPartsEl!.appendChild(rc);
       this.streamingReasoningBodyEl = body;
     }
+    const wasAtBottom = this.isAtBottom();
     this.streamingReasoningBodyEl.innerHTML = "";
     this.streamingReasoningBodyEl.appendChild(renderMarkdown(this.streamingReasoning));
-    if (shouldScroll) this.scrollToBottom(false);
+    if (shouldScroll && wasAtBottom) this.scrollToBottom(false);
   }
 
   private appendStreamingToolStart(name: string, input: unknown, partId: string): void {
