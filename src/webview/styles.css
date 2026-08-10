@@ -92,10 +92,11 @@ body {
 }
 .modal h3 { margin: 0 0 8px 0; font: var(--font-headline); }
 .modal-body {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   margin: 8px 0;
+  padding-bottom: 8px;
 }
 .modal .close-btn {
   background: transparent;

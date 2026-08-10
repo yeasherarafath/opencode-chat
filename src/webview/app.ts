@@ -348,6 +348,7 @@ class App {
   private overlayEl!: HTMLElement;
   private pendingDiffResolve: ((d: FileDiff[]) => void) | null = null;
   private pendingProviderResolve: ((p: ProviderInfo[]) => void) | null = null;
+  private providerTimeout: ReturnType<typeof setTimeout> | null = null;
   private searchBarEl!: HTMLElement;
   private searchInput!: HTMLInputElement;
   private searchNavEl!: HTMLElement;
@@ -359,6 +360,7 @@ class App {
 
   constructor() {
     this.root = document.getElementById("root")!;
+    this.overlayEl = el("div", { className: "fixed inset-0 bg-black/50 z-200 flex items-center justify-center backdrop-blur-sm hidden" });
     console.log("[webview] constructor: initial render");
     this.render();
     console.log("[webview] constructor: setting up listener");
@@ -420,7 +422,6 @@ class App {
     this.chatArea = el("div", { className: "flex-1 overflow-y-auto px-3 pt-6 flex flex-col gap-5 overflow-x-hidden" });
     const inputArea = this.createInputArea();
     const statusBar = this.createStatusBar();
-    this.overlayEl = el("div", { className: "fixed inset-0 bg-black/50 z-200 flex items-center justify-center backdrop-blur-sm hidden" });
     this.root.append(header, agentBar, this.sessionsPanel, this.searchBarEl, this.chatArea, inputArea, statusBar, this.overlayEl);
     this.renderMessages();
     this.renderSessionList();
@@ -1015,7 +1016,7 @@ class App {
 
     this.pendingDiffResolve = (diffs) => {
       body.innerHTML = "";
-      if (!diffs.length) {
+      if (!diffs || !Array.isArray(diffs) || !diffs.length) {
         body.appendChild(el("div", { className: "row" }, [txt("No file changes in this session")]));
         return;
       }
@@ -1047,17 +1048,39 @@ class App {
     modal.appendChild(body);
 
     const closeBtn = el("button", { className: "close-btn" }, [txt("Close")]);
-    closeBtn.onclick = () => this.overlayEl.classList.add("hidden");
+    const closeModal = () => {
+      if (this.providerTimeout) { clearTimeout(this.providerTimeout); this.providerTimeout = null; }
+      this.pendingProviderResolve = null;
+      this.overlayEl.classList.add("hidden");
+    };
+    closeBtn.onclick = closeModal;
     modal.appendChild(closeBtn);
     this.overlayEl.appendChild(modal);
 
     this.overlayEl.onclick = (e) => {
-      if (e.target === this.overlayEl) this.overlayEl.classList.add("hidden");
+      if (e.target === this.overlayEl) closeModal();
     };
 
-    this.pendingProviderResolve = (providers) => {
+    if (this.providerTimeout) { clearTimeout(this.providerTimeout); this.providerTimeout = null; }
+    this.providerTimeout = setTimeout(() => {
+      this.providerTimeout = null;
       body.innerHTML = "";
-      if (!providers.length) {
+      const msg = el("div", { className: "row", style: "flex-direction:column;gap:8px" });
+      msg.appendChild(el("div", {}, [txt("Failed to load providers (timeout)")]));
+      const retry = el("button", { className: "close-btn", style: "align-self:flex-start" }, [txt("Retry")]);
+      retry.onclick = () => {
+        body.innerHTML = "";
+        body.appendChild(el("div", { className: "row" }, [txt("Loading providers...")]));
+        vscode.postMessage({ type: "get-providers" });
+      };
+      msg.appendChild(retry);
+      body.appendChild(msg);
+    }, 20000);
+
+    this.pendingProviderResolve = (providers) => {
+      if (this.providerTimeout) { clearTimeout(this.providerTimeout); this.providerTimeout = null; }
+      body.innerHTML = "";
+      if (!providers || !Array.isArray(providers) || !providers.length) {
         body.appendChild(el("div", { className: "row" }, [txt("No providers found")]));
         return;
       }
