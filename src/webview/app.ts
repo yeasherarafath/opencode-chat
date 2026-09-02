@@ -625,7 +625,23 @@ class App {
     modelPopup.style.overflowY = "auto";
     const modelSearch = el("input", { className: "bg-surface-container-lowest border-none border-b border-outline-variant text-on-surface px-2 py-1.5 text-xs font-ui outline-none placeholder:text-on-surface-variant/60 w-full", placeholder: "Search models...", type: "text" }) as HTMLInputElement;
     const modelList = el("div", { className: "" });
-    modelPopup.append(modelSearch, modelList);
+    modelList.style.maxHeight = "180px";
+    modelList.style.overflowY = "auto";
+    // Non-disturbing promo — pinned FIRST in model picker (top, always visible, never cut off)
+    const modelGatewayPromo = el("div", { className: "gateway-promo gateway-promo--model gateway-promo--top" });
+    modelGatewayPromo.innerHTML = '<span style="opacity:.6;font-size:11px">Test keys free \u2192</span> <a style="color:var(--primary);cursor:pointer;font-size:11px;font-weight:500;text-decoration:none">AI API Gateway Checker</a>';
+    const modelPromoLink = modelGatewayPromo.querySelector("a") as HTMLElement;
+    const MODEL_UTM = "https://newisty.com/ai-api-gateway-check?utm_source=opencode_ext&utm_medium=model_picker&utm_campaign=gateway_check";
+    if (modelPromoLink) {
+      modelPromoLink.onclick = (e) => { e.stopPropagation(); vscode.postMessage({ type: "open-external", url: MODEL_UTM }); };
+      modelPromoLink.onmouseenter = () => (modelPromoLink.style.textDecoration = "underline");
+      modelPromoLink.onmouseleave = () => (modelPromoLink.style.textDecoration = "none");
+    }
+    // flex column so promo stays pinned at top, list scrolls below
+    modelPopup.style.display = "none";
+    (modelPopup as HTMLElement).style.display = "none";
+    modelPopup.style.flexDirection = "column";
+    modelPopup.append(modelGatewayPromo, modelSearch, modelList);
     const renderModelList = (q: string) => {
       modelList.innerHTML = "";
       const filtered = q ? this.state.models.filter(m => m.toLowerCase().includes(q)) : this.state.models;
@@ -1041,6 +1057,17 @@ class App {
 
     const modal = el("div", { className: "modal" });
     modal.appendChild(el("h3", {}, [txt("Providers")]));
+    // Promo placed RIGHT UNDER title (above list) so it never gets cut off at bottom — with utm_*
+    const gatewayPromoTop = el("div", { className: "gateway-promo gateway-promo--top" });
+    gatewayPromoTop.innerHTML = '<span style="opacity:.6;font-size:11px">Test keys before you chat \u2192</span> <a style="color:var(--primary);cursor:pointer;font-size:11px;font-weight:500;text-decoration:none">AI API Gateway Checker</a>';
+    const PROVIDER_UTM = "https://newisty.com/ai-api-gateway-check?utm_source=opencode_ext&utm_medium=providers_modal&utm_campaign=gateway_check";
+    const topLink = gatewayPromoTop.querySelector("a") as HTMLElement;
+    if (topLink) {
+      topLink.onclick = () => vscode.postMessage({ type: "open-external", url: PROVIDER_UTM });
+      topLink.onmouseenter = () => (topLink.style.textDecoration = "underline");
+      topLink.onmouseleave = () => (topLink.style.textDecoration = "none");
+    }
+    modal.appendChild(gatewayPromoTop);
     const body = el("div", { className: "modal-body" });
 
     const loadingEl = el("div", { className: "row" }, [txt("Loading providers...")]);
@@ -1082,19 +1109,19 @@ class App {
       body.innerHTML = "";
       if (!providers || !Array.isArray(providers) || !providers.length) {
         body.appendChild(el("div", { className: "row" }, [txt("No providers found")]));
-        return;
-      }
-      for (const p of providers) {
-        const section = el("div", { className: "row", style: "flex-direction:column;gap:2px;padding:6px 0" });
-        const nameRow = el("div", { style: "display:flex;justify-content:space-between;width:100%" });
-        nameRow.appendChild(el("span", { className: "value" }, [txt(p.name || p.id)]));
-        nameRow.appendChild(el("span", { className: "value" }, [txt(p.modelCount + " models")]));
-        section.appendChild(nameRow);
-        if (p.key) {
-          const masked = p.key.length > 8 ? p.key.slice(0, 4) + "..." + p.key.slice(-4) : "***";
-          section.appendChild(el("span", { style: "font-size:11px;opacity:.6" }, [txt("Key: " + masked)]));
+      } else {
+        for (const p of providers) {
+          const section = el("div", { className: "row", style: "flex-direction:column;gap:2px;padding:6px 0" });
+          const nameRow = el("div", { style: "display:flex;justify-content:space-between;width:100%" });
+          nameRow.appendChild(el("span", { className: "value" }, [txt(p.name || p.id)]));
+          nameRow.appendChild(el("span", { className: "value" }, [txt(p.modelCount + " models")]));
+          section.appendChild(nameRow);
+          if (p.key) {
+            const masked = p.key.length > 8 ? p.key.slice(0, 4) + "..." + p.key.slice(-4) : "***";
+            section.appendChild(el("span", { style: "font-size:11px;opacity:.6" }, [txt("Key: " + masked)]));
+          }
+          body.appendChild(section);
         }
-        body.appendChild(section);
       }
     };
   }

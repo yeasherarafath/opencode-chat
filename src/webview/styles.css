@@ -714,5 +714,41 @@ body {
 .msg.search-match { border-left: 2px solid var(--primary-container); background: rgba(77, 142, 255, .04); }
 .msg.search-active { border-left: 2px solid var(--primary); background: rgba(77, 142, 255, .1); box-shadow: 0 0 0 1px rgba(77, 142, 255, .3); }
 
+/* ===== Gateway Promo (non-disturbing, muted) ===== */
+.gateway-promo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 14px;
+  border-top: 1px solid var(--outline-variant);
+  background: var(--surface-container-low);
+  color: var(--on-surface-variant);
+  opacity: .75;
+  flex-shrink: 0;
+}
+.gateway-promo--top {
+  border-top: none;
+  border-bottom: 1px solid var(--outline-variant);
+  background: var(--surface-container-lowest);
+  margin: -4px 0 4px 0;
+  border-radius: 4px;
+  opacity: .78;
+}
+.gateway-promo--model {
+  padding: 7px 10px;
+  border-top: none;
+  border-bottom: 1px solid var(--outline-variant);
+  background: var(--surface-container-lowest);
+  opacity: .75;
+  border-radius: 6px 6px 0 0;
+}
+.gateway-promo--model.gateway-promo--top {
+  margin: 0;
+}
+.gateway-promo-link { transition: opacity .15s; }
+.gateway-promo-link:hover { opacity: 1; }
+
 /* ===== Overlay / Modal ===== */
 .overlay.hidden { display: none; }

@@ -391,6 +391,8 @@ This extension is not built by the OpenCode team and is not affiliated with or e
 
 This extension runs the opencode CLI locally on your machine. No data is sent to external servers except through the AI providers you configure in the opencode CLI.
 
+> Tip: Test your provider API keys for free with the [AI API Gateway Checker](https://newisty.com/ai-api-gateway-check?utm_source=opencode_ext&utm_medium=readme&utm_campaign=gateway_check) on Newisty — verify keys before you chat.
+
 ## License
 
 MIT

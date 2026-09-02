@@ -240,6 +240,14 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
           this.log("handleMessage: install");
           vscode.env.openExternal(vscode.Uri.parse(this.cli.getInstallUrl()));
           break;
+        case "open-external": {
+          const url = message.url as string;
+          if (url && typeof url === "string" && /^https?:\/\//.test(url)) {
+            this.log(`handleMessage: open-external url=${url}`);
+            vscode.env.openExternal(vscode.Uri.parse(url));
+          }
+          break;
+        }
         case "request-state":
           await this.sendStateInfo().catch((e) => this.log(`sendStateInfo error: ${e}`));
           break;
