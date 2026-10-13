@@ -2,6 +2,20 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.3.16] - 2026-10-13
+
+### Added
+- **OpenCode v2 support with auto-detection** — the extension detects whether the installed `opencode` is v1 or v2 (CLI version, then `/api/info` vs `/global/health`) and uses the matching server API. v2 data is translated to the existing chat format, so sessions, streaming, tools, models, agents, providers, rename, fork, diff, export, compact and abort work on both.
+- **v2 permission and question prompts** — permission requests and forms raised by opencode v2 during a chat are answered through native VS Code dialogs.
+
+### Fixed
+- **Server failed to start on opencode v2** — `serve` flags (`--log-level`, `--print-logs`, `--pure`) and the "server listening" line differ in v2.
+- **Health check always passed** — `/health` returns the web UI (HTML 200) on both v1 and v2; health now requires a JSON response.
+- **Version label showed `vv2.0.27`** for v2's `opencode v2.0.27` version output.
+
+### Notes
+- Session sharing is not available in opencode v2.
+
 ## [0.3.10] - 2026-06-25
 
 ### Added

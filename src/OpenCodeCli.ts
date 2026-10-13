@@ -5,6 +5,7 @@ import * as fs from "fs";
 import * as os from "os";
 import spawn_ from "cross-spawn";
 import { JsonLogger } from "./JsonLogger";
+import { V2Api, convertAssistant, convertMessages, resolvePendingInteractions, sessionToV1, toolOutputText } from "./OpenCodeV2";
 const spawn: (cmd: string, args: string[], opts?: any) => any = spawn_ as any;
 
 interface Session {
@@ -129,6 +130,10 @@ export class OpenCodeCli {
   private agentsCache: { data: string[]; ts: number } | null = null;
   private readonly CACHE_TTL = 60000;
   private startingPromise: Promise<boolean> | null = null;
+  // Server API generation: 1 = legacy REST (SDK), 2 = opencode v2 `/api/*`.
+  private apiVersion: 1 | 2 = 1;
+  private v2: V2Api | null = null;
+  private v2PromptAbort: AbortController | null = null;
 
   static setOutputChannel(ch: import("vscode").OutputChannel): void {
     OpenCodeCli.outputChannel = ch;
@@ -254,49 +259,21 @@ export class OpenCodeCli {
     const serverPassword = this.serverPassword;
     const binary = this.binaryPath !== "opencode" ? this.binaryPath : await this.resolveBinary();
     if (binary) {
-      try {
-        this.log(`start: trying manual spawn with ${binary} serve`);
-        const args = ["serve", `--hostname=${hostname}`, `--port=0`, `--print-logs`, `--log-level=DEBUG`];
-        if (this.pureMode) args.push("--pure");
-        const proc = spawn(binary, args, {
-          stdio: "pipe",
-          cwd: this.cwd || process.cwd(),
-          env: { ...process.env, OPENCODE_SERVER_PASSWORD: serverPassword },
-        });
-        this.serverProc = { pid: proc.pid as number, kill: () => proc.kill() };
-        proc.on("exit", () => { this.serverProc = null; });
-        let stdoutBuf = "";
-        let stderrBuf = "";
-        const serverUrl = await new Promise<string>((resolve, reject) => {
-          const t = setTimeout(() => {
-            reject(new Error(`Timeout waiting for server after ${timeout}ms`));
-          }, timeout);
-          const onStdout = (chunk: any) => {
-            stdoutBuf += chunk.toString();
-            const m = stdoutBuf.match(/opencode server listening on (https?:\/\/[^\s]+)/);
-            if (m) { clearTimeout(t); resolve(m[1]); }
-          };
-          const onStderr = (chunk: any) => { stderrBuf += chunk.toString(); };
-          proc.stdout?.on("data", onStdout);
-          proc.stderr?.on("data", onStderr);
-          proc.on("exit", (code: any) => {
-            clearTimeout(t);
-            this.log(`spawn stderr: ${stderrBuf.slice(0, 500)}`);
-            reject(new Error(`exit ${code}`));
-          });
-          proc.on("error", (err: any) => { clearTimeout(t); reject(err); });
-        });
-        this.serverUrl = serverUrl;
-        this.serverInstance = { url: serverUrl, close: () => { proc.kill(); (proc as any).stdio?.forEach((s: any) => s?.destroy?.()); } };
-        const basicAuth = `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}`;
-        this.client = createOpencodeClient({
-          baseUrl: serverUrl,
-          headers: { Authorization: basicAuth },
-        }) as import("@opencode-ai/sdk/client").OpencodeClient;
-        this.log(`start: manual spawn OK at ${serverUrl}`);
-        return true;
-      } catch (e) {
-        this.log(`start: manual spawn with serve FAILED: ${e}`);
+      // v1 and v2 CLIs accept different serve flags; try the detected
+      // generation first and fall back to the other one.
+      const major = await this.detectBinaryMajor(binary);
+      const generations: Array<1 | 2> = major === 1 ? [1, 2] : [2, 1];
+      for (const gen of generations) {
+        try {
+          const serverUrl = await this.spawnServer(binary, hostname, timeout, serverPassword, gen);
+          const basicAuth = `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}`;
+          await this.connect(serverUrl, basicAuth);
+          this.log(`start: manual spawn OK at ${serverUrl} (api v${this.apiVersion})`);
+          return true;
+        } catch (e) {
+          this.log(`start: manual spawn (v${gen} flags) FAILED: ${e}`);
+          this.killServerProc();
+        }
       }
     }
 
@@ -306,15 +283,12 @@ export class OpenCodeCli {
       this.log(`start: trying existing server at ${url}`);
       const pwd = this.serverPassword;
       const authHeader = pwd ? `Basic ${Buffer.from(`opencode:${pwd}`).toString("base64")}` : "";
-      const init: RequestInit = authHeader ? { headers: { Authorization: authHeader } } : {};
-      const res = await fetch(`${url}/health`, init);
-      if (res.ok) {
-        this.serverUrl = url;
-        const opts: Record<string, unknown> = authHeader ? { baseUrl: url, headers: { Authorization: authHeader } } : { baseUrl: url };
-        this.client = createOpencodeClient(opts) as import("@opencode-ai/sdk/client").OpencodeClient;
-        this.log("start: connected to existing server");
+      if (await this.probeServer(url, authHeader)) {
+        await this.connect(url, authHeader);
+        this.log(`start: connected to existing server (api v${this.apiVersion})`);
         return true;
       }
+      this.log("start: no existing server found");
     } catch {
       this.log("start: no existing server found");
     }
@@ -323,10 +297,134 @@ export class OpenCodeCli {
     return false;
   }
 
+  private async detectBinaryMajor(binary: string): Promise<number> {
+    try {
+      const out = await new Promise<string>((resolve, reject) => {
+        const child = spawn(this.ensureExecutableExtension(binary), ["--version"], {});
+        let stdout = "";
+        const timer = setTimeout(() => { child.kill(); reject(new Error("timeout")); }, 5000);
+        child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+        child.on("error", (e: Error) => { clearTimeout(timer); reject(e); });
+        child.on("close", () => { clearTimeout(timer); resolve(stdout.trim()); });
+      });
+      const m = out.match(/(\d+)\.\d+/);
+      const major = m ? Number(m[1]) : 0;
+      this.log(`detectBinaryMajor: "${out}" -> ${major || "unknown"}`);
+      return major;
+    } catch (e) {
+      this.log(`detectBinaryMajor failed: ${e}`);
+      return 0;
+    }
+  }
+
+  private killServerProc(): void {
+    if (!this.serverProc) return;
+    const pid = this.serverProc.pid;
+    if (os.platform() === "win32") {
+      try { execFileSync("taskkill", ["/F", "/T", "/PID", String(pid)]); } catch { /* ignore */ }
+    } else {
+      try { process.kill(-pid, "SIGTERM"); } catch { /* ignore */ }
+      try { this.serverProc.kill(); } catch { /* ignore */ }
+    }
+    this.serverProc = null;
+  }
+
+  private spawnServer(binary: string, hostname: string, timeout: number, serverPassword: string, gen: 1 | 2): Promise<string> {
+    // v2: lowercase log levels, server logs only with --standalone, no --pure.
+    const args = gen === 2
+      ? ["serve", `--hostname=${hostname}`, `--port=0`, `--log-level=debug`]
+      : ["serve", `--hostname=${hostname}`, `--port=0`, `--print-logs`, `--log-level=DEBUG`];
+    if (this.pureMode) {
+      if (gen === 1) args.push("--pure");
+      else this.log("start: --pure is not supported by opencode v2, ignoring");
+    }
+    this.log(`start: trying manual spawn with ${binary} ${args.join(" ")}`);
+    const proc = spawn(binary, args, {
+      stdio: "pipe",
+      cwd: this.cwd || process.cwd(),
+      env: { ...process.env, OPENCODE_SERVER_PASSWORD: serverPassword },
+    });
+    this.serverProc = { pid: proc.pid as number, kill: () => proc.kill() };
+    proc.on("exit", () => { this.serverProc = null; });
+    let stdoutBuf = "";
+    let stderrBuf = "";
+    return new Promise<string>((resolve, reject) => {
+      const t = setTimeout(() => {
+        reject(new Error(`Timeout waiting for server after ${timeout}ms`));
+      }, timeout);
+      const onStdout = (chunk: any) => {
+        stdoutBuf += chunk.toString();
+        // v1 prints "opencode server listening on <url>", v2 "server listening on <url>"
+        const m = stdoutBuf.match(/server listening on (https?:\/\/[^\s]+)/);
+        if (m) {
+          clearTimeout(t);
+          this.serverInstance = { url: m[1], close: () => { proc.kill(); (proc as any).stdio?.forEach((st: any) => st?.destroy?.()); } };
+          resolve(m[1]);
+        }
+      };
+      const onStderr = (chunk: any) => { stderrBuf += chunk.toString(); };
+      proc.stdout?.on("data", onStdout);
+      proc.stderr?.on("data", onStderr);
+      proc.on("exit", (code: any) => {
+        clearTimeout(t);
+        this.log(`spawn stderr: ${stderrBuf.slice(0, 500)}`);
+        reject(new Error(`exit ${code}`));
+      });
+      proc.on("error", (err: any) => { clearTimeout(t); reject(err); });
+    });
+  }
+
+  // v2 exposes GET /api/info (JSON); v1 has no such route.
+  private async isV2Server(url: string, authHeader: string, signal?: AbortSignal): Promise<boolean> {
+    try {
+      const res = await fetch(`${url}/api/info`, { headers: authHeader ? { Authorization: authHeader } : {}, signal });
+      if (!res.ok || !(res.headers.get("content-type") || "").includes("json")) return false;
+      const data = await res.json() as { version?: string };
+      return typeof data?.version === "string";
+    } catch {
+      return false;
+    }
+  }
+
+  // Reachability check for either API generation. Both serve their web UI
+  // (HTML 200) for unknown routes like /health, so only JSON counts:
+  // v2 -> /api/info, v1 -> /global/health.
+  private async probeServer(url: string, authHeader: string, signal?: AbortSignal): Promise<boolean> {
+    if (await this.isV2Server(url, authHeader, signal)) return true;
+    try {
+      const res = await fetch(`${url}/global/health`, { headers: authHeader ? { Authorization: authHeader } : {}, signal });
+      if (!res.ok || !(res.headers.get("content-type") || "").includes("json")) return false;
+      const data = await res.json() as { healthy?: boolean };
+      return data?.healthy !== false;
+    } catch {
+      return false;
+    }
+  }
+
+  private async connect(url: string, authHeader: string): Promise<void> {
+    this.serverUrl = url;
+    if (await this.isV2Server(url, authHeader)) {
+      this.apiVersion = 2;
+      this.v2 = new V2Api(url, authHeader, this.cwd);
+      this.client = null;
+    } else {
+      this.apiVersion = 1;
+      this.v2 = null;
+      const opts: Record<string, unknown> = authHeader ? { baseUrl: url, headers: { Authorization: authHeader } } : { baseUrl: url };
+      this.client = createOpencodeClient(opts) as import("@opencode-ai/sdk/client").OpencodeClient;
+    }
+    JsonLogger.log("meta", { event: "connect", url, apiVersion: this.apiVersion });
+  }
+
+  getApiVersion(): 1 | 2 {
+    return this.apiVersion;
+  }
+
   stop(): void {
     this.log("stop: closing server");
     this.serverInstance = null;
     this.client = null;
+    this.v2 = null;
     this.serverUrl = "";
     this.serverPassword = "";
 
@@ -354,21 +452,16 @@ export class OpenCodeCli {
    */
   async ensureServerHealthy(): Promise<boolean> {
     const probe = async (): Promise<boolean> => {
-      if (!this.client || !this.serverUrl) return false;
+      if ((!this.client && !this.v2) || !this.serverUrl) return false;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2000);
       try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 2000);
-        try {
-          // include auth in probe so 401 doesn't kill a healthy server
-          const pwd = this.serverPassword;
-          const init = pwd ? { signal: controller.signal, headers: { Authorization: `Basic ${Buffer.from(`opencode:${pwd}`).toString("base64")}` } } : { signal: controller.signal };
-          const res = await fetch(`${this.serverUrl}/health`, init);
-          return res.ok;
-        } finally {
-          clearTimeout(timer);
-        }
-      } catch {
-        return false;
+        // include auth in probe so 401 doesn't kill a healthy server
+        const pwd = this.serverPassword;
+        const auth = pwd ? `Basic ${Buffer.from(`opencode:${pwd}`).toString("base64")}` : "";
+        return await this.probeServer(this.serverUrl, auth, controller.signal);
+      } finally {
+        clearTimeout(timer);
       }
     };
     if (await probe()) return true;
@@ -376,6 +469,7 @@ export class OpenCodeCli {
     JsonLogger.log("meta", { event: "ensureServerHealthy-restart" });
     // tear down stale references without killing (process may already be dead)
     this.client = null;
+    this.v2 = null;
     this.serverUrl = "";
     this.serverInstance = null;
     if (this.serverProc) {
@@ -406,7 +500,7 @@ export class OpenCodeCli {
       const version = await new Promise<string>((resolve, reject) => {
         exec(`"${this.binaryPath}" --v`, { shell, timeout: 5000 }, (err, stdout) => {
           if (err) reject(err);
-          else resolve(stdout.trim().replace(/^v/i, "").replace(/^opencode[\/\s]/i, ""));
+          else resolve(stdout.trim().replace(/^opencode[\/\s]+/i, "").replace(/^v/i, ""));
         });
       });
       this.log(`getVersion: from shell = "${version}"`);
@@ -422,7 +516,7 @@ export class OpenCodeCli {
         const version = await new Promise<string>((resolve, reject) => {
           execFile(binPath, ["--v"], { timeout: 5000 }, (err, stdout) => {
             if (err) reject(err);
-            else resolve(stdout.trim().replace(/^v/i, "").replace(/^opencode[\/\s]/i, ""));
+            else resolve(stdout.trim().replace(/^opencode[\/\s]+/i, "").replace(/^v/i, ""));
           });
         });
         this.log(`getVersion: from execFile ${binPath} = "${version}"`);
@@ -433,12 +527,20 @@ export class OpenCodeCli {
     }
 
     // 3. Fallback: try server health endpoints
+    if (this.v2) {
+      try {
+        const info = await this.v2.request<{ version?: string }>("GET", "/api/info");
+        if (info?.version) return info.version.replace(/^v/i, "");
+      } catch {
+        this.log("getVersion: v2 /api/info failed");
+      }
+    }
     if (this.serverUrl) {
       try {
         const res = await fetch(`${this.serverUrl}/global/health`);
         if (res.ok) {
           const data = await res.json() as { version?: string };
-          if (data.version) return data.version.replace(/^v/i, "").replace(/^opencode[\/\s]/i, "");
+          if (data.version) return data.version.replace(/^opencode[\/\s]+/i, "").replace(/^v/i, "");
         }
       } catch {
         this.log("getVersion: server health fetch failed");
@@ -447,7 +549,7 @@ export class OpenCodeCli {
         const res = await fetch(`${this.serverUrl}/health`);
         if (res.ok) {
           const data = await res.json() as { version?: string };
-          if (data.version) return data.version.replace(/^v/i, "").replace(/^opencode[\/\s]/i, "");
+          if (data.version) return data.version.replace(/^opencode[\/\s]+/i, "").replace(/^v/i, "");
         }
       } catch {
         this.log("getVersion: fallback health fetch failed");
@@ -471,20 +573,27 @@ export class OpenCodeCli {
   }
 
   async listSessions(maxCount = 50): Promise<SessionInfo[]> {
+    if (this.v2) {
+      const sessions = await this.v2.listSessions();
+      return sessions.map((x) => sessionToInfo(sessionToV1(x) as unknown as Session));
+    }
     const result = await this.client!.session.list();
     const sessions: Session[] = result.data ?? [];
     return sessions.map(sessionToInfo);
   }
 
   async deleteSession(id: string): Promise<void> {
+    if (this.v2) { await this.v2.request("DELETE", `/api/session/${id}`); return; }
     await this.client!.session.delete({ path: { id } });
   }
 
   async renameSession(id: string, title: string): Promise<void> {
+    if (this.v2) { await this.v2.request("PATCH", `/api/session/${id}`, { title }); return; }
     await this.client!.session.update({ path: { id }, body: { title } });
   }
 
   async shareSession(id: string): Promise<string> {
+    if (this.v2) throw new Error("Session sharing is not available in opencode v2");
     const result = await this.client!.session.share({ path: { id } });
     const session: Session = result.data!;
     const url = session.share?.url;
@@ -493,6 +602,10 @@ export class OpenCodeCli {
   }
 
   async forkSession(id: string, messageID?: string): Promise<SessionInfo> {
+    if (this.v2) {
+      const res = await this.v2.request<{ data: any }>("POST", `/api/session/${id}/fork`, messageID ? { before: messageID } : {});
+      return sessionToInfo(sessionToV1(res.data) as unknown as Session);
+    }
     const result = await this.client!.session.fork({
       path: { id },
       ...(messageID ? { body: { messageID } } : {}),
@@ -502,6 +615,12 @@ export class OpenCodeCli {
   }
 
   async createSession(title?: string): Promise<SessionInfo> {
+    if (this.v2) {
+      const created = await this.v2.createSession();
+      const t = (title || "Imported session").slice(0, 80);
+      await this.v2.request("PATCH", `/api/session/${created.id}`, { title: t }).catch(() => {});
+      return sessionToInfo(sessionToV1({ ...created, title: t }) as unknown as Session);
+    }
     if (!this.client) throw new Error("OpenCode client not initialized");
     const result = await this.client.session.create({
       body: { title: (title || "Imported session").slice(0, 80) },
@@ -510,6 +629,11 @@ export class OpenCodeCli {
   }
 
   async summarizeSession(id: string, providerID: string, modelID: string): Promise<boolean> {
+    if (this.v2) {
+      // v2 compacts with the session's own model
+      await this.v2.request("POST", `/api/session/${id}/compact`, {});
+      return true;
+    }
     const result = await this.client!.session.summarize({
       path: { id },
       body: { providerID, modelID },
@@ -518,11 +642,19 @@ export class OpenCodeCli {
   }
 
   async getSessionDiff(id: string): Promise<FileDiff[]> {
+    if (this.v2) {
+      const res = await this.v2.request<{ data: any[] }>("GET", `/api/session/${id}/diff`);
+      return (res.data ?? []).map((d) => ({ ...d, before: "", after: "" }));
+    }
     const result = await this.client!.session.diff({ path: { id } });
     return result.data ?? [];
   }
 
   async exportSession(id: string): Promise<Record<string, unknown>> {
+    if (this.v2) {
+      const [session, messages] = await Promise.all([this.v2.getSession(id), this.v2.listMessages(id)]);
+      return { ...sessionToV1(session), messages: convertMessages(messages, id) };
+    }
     const [sessionResult, msgsResult] = await Promise.all([
       this.client!.session.get({ path: { id } }),
       this.client!.session.messages({ path: { id } }),
@@ -551,12 +683,27 @@ export class OpenCodeCli {
     onEvent: (e: { type: "session.created" | "session.updated" | "session.deleted"; info: SessionInfo }) => void,
     signal: AbortSignal
   ): Promise<void> {
-    if (!this.client) {
+    if (!this.client && !this.v2) {
       this.log("subscribeGlobalEvents: client is null, attempting reconnect...");
       try { await this.ensureServerHealthy(); } catch {}
-      if (!this.client) { this.log("subscribeGlobalEvents: reconnect failed, returning"); return; }
+      if (!this.client && !this.v2) { this.log("subscribeGlobalEvents: reconnect failed, returning"); return; }
     }
-    const events = await this.client.global.event();
+    if (this.v2) {
+      const v2 = this.v2;
+      for await (const ev of v2.events(signal)) {
+        const sid = ev.data?.sessionID as string | undefined;
+        if (!sid) continue;
+        let type: "session.created" | "session.updated" | "session.deleted";
+        if (ev.type === "session.created") type = "session.created";
+        else if (ev.type === "session.deleted") type = "session.deleted";
+        else if (ev.type === "session.renamed" || /^session\.execution\.(succeeded|failed|interrupted)$/.test(ev.type)) type = "session.updated";
+        else continue;
+        const now = Date.now();
+        onEvent({ type, info: { id: sid, title: (ev.data.title as string) || "", created_at: new Date(now).toISOString(), updated_at: new Date(now).toISOString() } });
+      }
+      return;
+    }
+    const events = await this.client!.global.event();
     const iterator = events.stream[Symbol.asyncIterator]();
     try {
       while (!signal.aborted) {
@@ -593,7 +740,7 @@ export class OpenCodeCli {
     let prevIds = "";
     let reconnectAttempts = 0;
     while (!signal.aborted) {
-      if (!this.client) {
+      if (!this.client && !this.v2) {
         if (reconnectAttempts === 0) this.log("pollSessions: client is null, attempting reconnect...");
         try { await this.ensureServerHealthy(); } catch {}
         reconnectAttempts++;
@@ -618,8 +765,17 @@ export class OpenCodeCli {
       if (!forceRefresh && this.modelsCache && Date.now() - this.modelsCache.ts < this.CACHE_TTL) {
         return this.modelsCache.data;
       }
-      if (!this.client) { this.log("listModels: client is null, attempting reconnect..."); try { await this.ensureServerHealthy(); } catch {} if (!this.client) return []; }
-      const result: any = await this.client.config.providers();
+      if (!this.client && !this.v2) { this.log("listModels: client is null, attempting reconnect..."); try { await this.ensureServerHealthy(); } catch {} if (!this.client && !this.v2) return []; }
+      if (this.v2) {
+        const res = await this.v2.request<{ data: any[] }>("GET", "/api/model");
+        const models = (res.data ?? [])
+          .filter((m) => m.enabled !== false && m.status !== "deprecated")
+          .map((m) => `${m.providerID}/${m.id}`);
+        this.log(`listModels: v2 returning ${models.length} models`);
+        this.modelsCache = { data: models, ts: Date.now() };
+        return models;
+      }
+      const result: any = await this.client!.config.providers();
       const data: any = result.data;
       const error: any = result.error;
       this.log(`listModels: serverUrl=${this.serverUrl}, status=${result.response?.status}, data=${typeof data}, error=${typeof error !== "undefined"}`);
@@ -667,8 +823,21 @@ export class OpenCodeCli {
 
   async getProviderInfo(): Promise<Array<{ id: string; name: string; key?: string; modelCount: number }>> {
     try {
-      if (!this.client) { this.log("getProviderInfo: client is null, attempting reconnect..."); try { await this.ensureServerHealthy(); } catch {} if (!this.client) return []; }
-      const result = await this.client.config.providers();
+      if (!this.client && !this.v2) { this.log("getProviderInfo: client is null, attempting reconnect..."); try { await this.ensureServerHealthy(); } catch {} if (!this.client && !this.v2) return []; }
+      if (this.v2) {
+        const [providers, models] = await Promise.all([
+          this.v2.request<{ data: any[] }>("GET", "/api/provider"),
+          this.v2.request<{ data: any[] }>("GET", "/api/model"),
+        ]);
+        return (providers.data ?? [])
+          .filter((p) => p.activation !== "disabled")
+          .map((p) => ({
+            id: p.id,
+            name: p.name,
+            modelCount: (models.data ?? []).filter((m) => m.providerID === p.id && m.enabled !== false).length,
+          }));
+      }
+      const result = await this.client!.config.providers();
       const data: any = result.data;
       const error: any = result.error;
       this.log(`getProviderInfo: serverUrl=${this.serverUrl}, status=${result.response?.status}, data=${typeof data}, error=${typeof error !== "undefined"}`);
@@ -694,6 +863,12 @@ export class OpenCodeCli {
     try {
       if (!forceRefresh && this.agentsCache && Date.now() - this.agentsCache.ts < this.CACHE_TTL) {
         return this.agentsCache.data;
+      }
+      if (this.v2) {
+        const res = await this.v2.request<{ data: any[] }>("GET", "/api/agent");
+        const names = (res.data ?? []).filter((a) => !a.hidden && a.mode !== "subagent").map((a) => a.id as string);
+        this.agentsCache = { data: names, ts: Date.now() };
+        return names;
       }
       if (!this.client) { this.log("listAgents: client is null"); return []; }
       const result = await this.client.app.agents();
@@ -745,6 +920,10 @@ export class OpenCodeCli {
       JsonLogger.log("meta", { event: "runPrompt-exit", code: 1 });
       onExit(1);
       return;
+    }
+
+    if (this.v2) {
+      return this.runPromptV2(this.v2, prompt, options, emit, onError, onExit);
     }
 
     try {
@@ -1074,6 +1253,7 @@ export class OpenCodeCli {
 
     const healthy = await this.ensureServerHealthy();
     if (!healthy) throw new Error("OpenCode server is not reachable");
+    if (this.v2) return this.generateCommitMessageV2(this.v2, prompt);
 
     const createResult = await this.client!.session.create({
       body: { title: "commit" },
@@ -1155,17 +1335,19 @@ export class OpenCodeCli {
     JsonLogger.log("meta", { event: "detach" });
     this.serverInstance = null;
     this.client = null;
+    this.v2 = null;
     this.serverUrl = "";
     this.serverProc = null;
   }
 
   isRunning(): boolean {
-    return this.client !== null;
+    return this.client !== null || this.v2 !== null;
   }
 
   async abort(): Promise<void> {
     JsonLogger.log("meta", { event: "abort" });
     this.sseAbortFlag = true;
+    this.v2PromptAbort?.abort();
     if (this.sseIterator) {
       try {
         await this.sseIterator.return?.();
@@ -1179,6 +1361,7 @@ export class OpenCodeCli {
   async abortSession(sessionId: string): Promise<void> {
     JsonLogger.log("meta", { event: "abortSession-start", sessionId });
     this.sseAbortFlag = true;
+    this.v2PromptAbort?.abort();
     if (this.sseIterator) {
       try {
         await this.sseIterator.return?.();
@@ -1188,12 +1371,206 @@ export class OpenCodeCli {
       this.sseIterator = null;
     }
     try {
-      await this.client!.session.abort({ path: { id: sessionId } });
+      if (this.v2) await this.v2.request("POST", `/api/session/${sessionId}/interrupt`);
+      else await this.client!.session.abort({ path: { id: sessionId } });
       this.log(`abortSession: aborted ${sessionId}`);
       JsonLogger.log("meta", { event: "abortSession-done", sessionId });
     } catch (e) {
       this.log(`abortSession error: ${e}`);
       JsonLogger.log("error", { source: "abortSession", sessionId, error: String(e) });
+    }
+  }
+
+  // --- opencode v2 prompt flow ---
+  // Translates the v2 `/api/event` stream into the same CliEvent sequence the
+  // v1 flow emits, so the webview stays version-agnostic.
+  private async runPromptV2(
+    api: V2Api,
+    prompt: string,
+    options: { sessionId?: string; model?: string; agent?: string; variant?: string; files?: string[] },
+    emit: (event: CliEvent) => void,
+    onError: (error: Error) => void,
+    onExit: (code: number | null) => void
+  ): Promise<void> {
+    const ac = new AbortController();
+    this.v2PromptAbort = ac;
+    let code = 0;
+    try {
+      let sessionId = options.sessionId;
+      if (!sessionId) {
+        sessionId = (await api.createSession()).id;
+        emit({ type: "sessionID", sessionID: sessionId });
+      }
+
+      // v2 keeps model/agent as session state instead of per-prompt fields
+      if (options.model && options.model.includes("/")) {
+        const [providerID, id] = options.model.split("/", 2);
+        const model: Record<string, string> = { providerID, id };
+        if (options.variant) model.variant = options.variant;
+        await api.request("POST", `/api/session/${sessionId}/model`, { model });
+      }
+      if (options.agent) {
+        await api.request("POST", `/api/session/${sessionId}/agent`, { agent: options.agent });
+      }
+
+      let text = prompt;
+      for (const fp of options.files || []) {
+        try {
+          const raw = await fs.promises.readFile(fp, "utf-8");
+          const fname = fp.split(/[\\/]/).pop() || fp;
+          text += `\n\nFile: ${fname}\n\`\`\`\n${raw}\n\`\`\`\n`;
+          this.log(`runPromptV2: attached file ${fp} (${raw.length} chars)`);
+        } catch (e) {
+          this.log(`runPromptV2: failed to read file ${fp}: ${e}`);
+        }
+      }
+
+      // Subscribe BEFORE prompting so no events are lost
+      const stream = api.events(ac.signal);
+      const first = stream.next();
+      first.catch(() => {});
+      await api.request("POST", `/api/session/${sessionId}/prompt`, { text });
+
+      const toolNames = new Map<string, string>();
+      const textSeen = new Set<string>();
+      const emittedMsgs = new Map<string, string>();
+      const handledInteractions = new Set<string>();
+      const emitMessage = async (msgId: string) => {
+        try {
+          const m = await api.getMessage(sessionId!, msgId);
+          if (!m || m.type !== "assistant") return;
+          const { info, parts } = convertAssistant(m, sessionId!);
+          const content = parts.filter((p) => p.type === "text").map((p) => p.text as string).join("\n");
+          const sig = `${content.length}:${parts.length}`;
+          if ((!content && !parts.length) || emittedMsgs.get(msgId) === sig) return;
+          emittedMsgs.set(msgId, sig);
+          emit({ type: "message", info, role: "assistant", parts, content, id: msgId });
+        } catch (e) {
+          this.log(`runPromptV2: fetch message ${msgId} failed: ${e}`);
+        }
+      };
+
+      let pending: Promise<IteratorResult<any>> | null = first;
+      while (pending && !this.sseAbortFlag) {
+        let next: IteratorResult<any>;
+        try {
+          next = await pending;
+        } catch (e) {
+          if (ac.signal.aborted) break;
+          throw e;
+        }
+        if (next.done) break;
+        pending = stream.next();
+        pending.catch(() => {});
+        const ev = next.value as { type: string; data: Record<string, any> };
+        const d = ev.data;
+        if (d.sessionID && d.sessionID !== sessionId) continue;
+        JsonLogger.log("sse-event", { etype: ev.type, properties: d });
+        const msgId = d.assistantMessageID as string | undefined;
+        const key = `${msgId}:${d.ordinal ?? 0}`;
+
+        switch (ev.type) {
+          case "session.step.started":
+            emit({ type: "step-start", part: { id: `${msgId}-start`, type: "step-start", messageID: msgId } });
+            break;
+          case "session.text.delta":
+            if (d.delta) { textSeen.add(key); emit({ type: "text", content: d.delta }); }
+            break;
+          case "session.text.ended":
+            if (!textSeen.has(key) && d.text) { textSeen.add(key); emit({ type: "text", content: d.text }); }
+            break;
+          case "session.reasoning.delta":
+            if (d.delta) emit({ type: "reasoning", text: d.delta });
+            break;
+          case "session.tool.input.started":
+            if (d.id) toolNames.set(d.id, d.name);
+            break;
+          case "session.tool.called":
+            if (d.id && d.name) toolNames.set(d.id, d.name);
+            emit({ type: "tool-start", name: toolNames.get(d.id) || d.name || "tool", input: d.input || {}, id: d.id });
+            break;
+          case "session.tool.success": {
+            const out = toolOutputText(d.content);
+            emit({ type: "tool-result", name: toolNames.get(d.id) || "tool", output: out, content: out, id: d.id });
+            break;
+          }
+          case "session.tool.failed":
+          case "session.tool.error": {
+            const out = d.error?.message || toolOutputText(d.content) || "Tool error";
+            emit({ type: "tool-result", name: toolNames.get(d.id) || "tool", output: out, content: out, id: d.id, error: true });
+            break;
+          }
+          case "session.step.ended":
+            emit({ type: "step-finish", part: { id: `${msgId}-finish`, type: "step-finish", messageID: msgId, reason: d.finish, cost: d.cost || 0, tokens: d.tokens } });
+            if (msgId) await emitMessage(msgId);
+            break;
+          case "session.step.failed":
+          case "session.execution.failed": {
+            const msg = d.error?.message || "Session error";
+            JsonLogger.log("error", { source: ev.type, error: msg, properties: d });
+            onError(new Error(msg));
+            code = 1;
+            pending = null;
+            break;
+          }
+          case "session.execution.succeeded":
+          case "session.execution.interrupted":
+          case "session.execution.cancelled":
+            pending = null;
+            break;
+          default:
+            if (/permission|form/.test(ev.type)) {
+              await resolvePendingInteractions(api, sessionId, handledInteractions).catch((e) =>
+                this.log(`runPromptV2: interaction failed: ${e}`)
+              );
+            } else {
+              JsonLogger.log("sse-ignored", { etype: ev.type });
+            }
+        }
+      }
+
+      // final refresh so the webview gets the finished messages
+      for (const id of emittedMsgs.keys()) await emitMessage(id);
+    } catch (e) {
+      code = 1;
+      this.log(`runPromptV2 error: ${e}`);
+      JsonLogger.log("error", { source: "runPromptV2", error: String(e), stack: (e as Error)?.stack });
+      onError(e instanceof Error ? e : new Error(String(e)));
+    } finally {
+      ac.abort();
+      if (this.v2PromptAbort === ac) this.v2PromptAbort = null;
+      this.sseAbortFlag = false;
+    }
+    JsonLogger.log("meta", { event: "runPrompt-exit", code });
+    onExit(code);
+  }
+
+  private async generateCommitMessageV2(api: V2Api, prompt: string): Promise<string> {
+    const sessionId = (await api.createSession()).id;
+    try {
+      await api.request("PATCH", `/api/session/${sessionId}`, { title: "commit" }).catch(() => {});
+      await api.request("POST", `/api/session/${sessionId}/prompt`, { text: prompt });
+      let response = "";
+      const deadline = Date.now() + 60000;
+      while (Date.now() < deadline && !response) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const msgs = await api.listMessages(sessionId);
+          for (let i = msgs.length - 1; i >= 0 && !response; i--) {
+            const m = msgs[i];
+            if (m.type !== "assistant" || !m.time?.completed) continue;
+            response = (m.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("").trim();
+          }
+        } catch (e) {
+          this.log(`generateCommitMessageV2: poll error: ${e}`);
+        }
+      }
+      response = response.replace(/<(think|Thought|thinking)[\s\S]*?<\/(think|Thought|thinking)>/g, "").trim();
+      const result = response.split("\n")[0].trim();
+      this.log(`generateCommitMessageV2: returning "${result}"`);
+      return result;
+    } finally {
+      try { await api.request("DELETE", `/api/session/${sessionId}`); } catch {}
     }
   }
 }
