@@ -296,7 +296,7 @@ src/
     app.ts                  # Chat UI (Vanilla TypeScript + Tailwind CSS)
 ```
 
-The webview is built with vanilla TypeScript and Tailwind CSS — no framework dependencies. Markdown rendering and syntax highlighting are implemented from scratch for a lightweight footprint.
+The webview is built with vanilla TypeScript and Tailwind CSS — no framework dependencies. Markdown rendering uses `marked`; code blocks use a built-in lightweight syntax highlighter.
 
 The optional **Open Web GUI** panel runs the opencode web UI inside an `iframe` inside a custom `WebviewPanel`. Because the opencode server requires Basic auth on every request, `AuthProxy` listens on a free local port and forwards all HTTP requests and WebSocket upgrades to the real server, adding the `Authorization: Basic` header on the way out. The webview only ever talks to the proxy, so the GUI loads without a manual login step.
 

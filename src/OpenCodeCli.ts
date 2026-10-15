@@ -6,6 +6,7 @@ import * as os from "os";
 import spawn_ from "cross-spawn";
 import { JsonLogger } from "./JsonLogger";
 import { V2Api, convertAssistant, convertMessages, resolvePendingInteractions, sessionToV1, toolOutputText } from "./OpenCodeV2";
+import { filterReasoningParts, messageSig, shouldEmitReasoningEnded } from "./ReasoningUtils";
 const spawn: (cmd: string, args: string[], opts?: any) => any = spawn_ as any;
 
 interface Session {
@@ -1109,13 +1110,16 @@ export class OpenCodeCli {
               this.log(`message.updated: fetch msg ${msgId} failed: ${e}`);
               JsonLogger.log("error", { source: "message.updated.fetch", msgId, error: String(e) });
             }
-            const sig = `${mcontent.length}:${mparts.length}`;
+            const sig = messageSig(mcontent, mparts as any);
             const prevSig = lastMessageSig.get(msgId);
             if (mcontent || mparts.length) {
               if (prevSig !== sig) {
                 lastMessageSig.set(msgId, sig);
                 knownMessageIds.add(msgId);
-                emit({ type: "message", info, role: "assistant", parts: mparts, content: mcontent, id: msgId });
+                // Drop empty reasoning blocks (tool-only steps) so the UI
+                // doesn't render blank "Reasoned for ..." cards.
+                const filteredParts = filterReasoningParts(mparts as any);
+                emit({ type: "message", info, role: "assistant", parts: filteredParts, content: mcontent, id: msgId });
               } else {
                 JsonLogger.log("sse-skipped", { reason: "message-unchanged", msgId, sig });
               }
@@ -1173,10 +1177,11 @@ export class OpenCodeCli {
               const msgData = msgResult.data as Record<string, unknown> | undefined;
               if (msgData) {
                 const { content, parts } = this.extractMessageData(msgData);
-                const sig = `${content.length}:${parts.length}`;
+                const sig = messageSig(content, parts as any);
                 if ((content || parts.length) && lastMessageSig.get(msgId) !== sig) {
                   lastMessageSig.set(msgId, sig);
-                  emit({ type: "message", info: msgData, role: "assistant", parts, content, id: msgId });
+                  const filteredParts = filterReasoningParts(parts as any);
+                  emit({ type: "message", info: msgData, role: "assistant", parts: filteredParts, content, id: msgId });
                   this.log(`message ${msgId}: final fetch emitted (content=${content.length}, parts=${parts.length})`);
                   break;
                 }
@@ -1433,6 +1438,7 @@ export class OpenCodeCli {
 
       const toolNames = new Map<string, string>();
       const textSeen = new Set<string>();
+      const reasoningSeen = new Set<string>();
       const emittedMsgs = new Map<string, string>();
       const handledInteractions = new Set<string>();
       const emitMessage = async (msgId: string) => {
@@ -1441,7 +1447,10 @@ export class OpenCodeCli {
           if (!m || m.type !== "assistant") return;
           const { info, parts } = convertAssistant(m, sessionId!);
           const content = parts.filter((p) => p.type === "text").map((p) => p.text as string).join("\n");
-          const sig = `${content.length}:${parts.length}`;
+          // Include reasoning length so reasoning-only growth changes the sig.
+          // Previously `${content.length}:${parts.length}` missed reasoning edits,
+          // causing real thinking to be skipped as "unchanged".
+          const sig = messageSig(content, parts as any);
           if ((!content && !parts.length) || emittedMsgs.get(msgId) === sig) return;
           emittedMsgs.set(msgId, sig);
           emit({ type: "message", info, role: "assistant", parts, content, id: msgId });
@@ -1480,7 +1489,15 @@ export class OpenCodeCli {
             if (!textSeen.has(key) && d.text) { textSeen.add(key); emit({ type: "text", content: d.text }); }
             break;
           case "session.reasoning.delta":
-            if (d.delta) emit({ type: "reasoning", text: d.delta });
+            if (d.delta) { reasoningSeen.add(key); emit({ type: "reasoning", text: d.delta }); }
+            break;
+          case "session.reasoning.ended":
+            // Fallback when the model sends reasoning as a single block
+            // without deltas (mirrors session.text.ended handling).
+            if (shouldEmitReasoningEnded(reasoningSeen.has(key), d.text)) {
+              reasoningSeen.add(key);
+              emit({ type: "reasoning", text: d.text });
+            }
             break;
           case "session.tool.input.started":
             if (d.id) toolNames.set(d.id, d.name);
@@ -1491,13 +1508,16 @@ export class OpenCodeCli {
             break;
           case "session.tool.success": {
             const out = toolOutputText(d.content);
-            emit({ type: "tool-result", name: toolNames.get(d.id) || "tool", output: out, content: out, id: d.id });
+            // Forward metadata (incl. metadata.files) so the UI can render
+            // the updated-file card. Previously only output/content/id were sent,
+            // burying the file list.
+            emit({ type: "tool-result", name: toolNames.get(d.id) || d.name || "tool", output: out, content: out, id: d.id, metadata: d.metadata });
             break;
           }
           case "session.tool.failed":
           case "session.tool.error": {
             const out = d.error?.message || toolOutputText(d.content) || "Tool error";
-            emit({ type: "tool-result", name: toolNames.get(d.id) || "tool", output: out, content: out, id: d.id, error: true });
+            emit({ type: "tool-result", name: toolNames.get(d.id) || d.name || "tool", output: out, content: out, id: d.id, error: true, metadata: d.metadata });
             break;
           }
           case "session.step.ended":
@@ -1523,6 +1543,13 @@ export class OpenCodeCli {
               await resolvePendingInteractions(api, sessionId, handledInteractions).catch((e) =>
                 this.log(`runPromptV2: interaction failed: ${e}`)
               );
+            } else if (/patch|snapshot|compaction|retry|\bfile\b|\bagent\b/.test(ev.type)) {
+              // Forward file/patch/snapshot/agent live so the updated-file card
+              // appears during streaming, not only on final fetch.
+              // v1 already emits these; v2 previously dropped them as sse-ignored.
+              const kind = /patch/.test(ev.type) ? "patch" : /snapshot/.test(ev.type) ? "snapshot" : /compaction/.test(ev.type) ? "compaction" : /retry/.test(ev.type) ? "retry" : /agent/.test(ev.type) ? "agent" : "file";
+              emit({ type: kind, part: { id: (d.id as string) || `${msgId}-${kind}`, type: kind, messageID: msgId, ...(d as object) } });
+              JsonLogger.log("sse-event", { etype: ev.type, forwardedAs: kind });
             } else {
               JsonLogger.log("sse-ignored", { etype: ev.type });
             }

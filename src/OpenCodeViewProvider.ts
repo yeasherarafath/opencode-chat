@@ -603,6 +603,17 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
       const data = await this.cli.exportSession(sessionId);
       const messages = (data as any).messages ?? [];
       this.log(`loadSessionMessages: got ${messages.length} messages`);
+      try {
+        const st = (data as any).tokens;
+        const costs = (data as any).cost;
+        const tail = messages.slice(-3).map((m: any) => ({
+          id: String(m?.info?.id || m?.id || "").slice(-6),
+          infoTokens: (m?.info as any)?.tokens,
+          msgTokens: (m as any)?.tokens,
+          stepTokens: ((m?.parts || m?.info?.parts || []) as any[]).filter((p: any) => p.type === "step-finish").map((p: any) => p.tokens),
+        }));
+        this.log(`loadSessionMessages tokens: session=${JSON.stringify(st)} cost=${JSON.stringify(costs)} tail=${JSON.stringify(tail).slice(0, 2000)}`);
+      } catch {}
       const time = (data as any).time as { updated: number } | undefined;
       if (time?.updated) {
         this.currentSessionUpdatedAt = new Date(time.updated).toISOString();
@@ -614,8 +625,9 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
         session: data,
       });
     } catch (e) {
-      this.log(`loadSessionMessages error: ${e}`);
-      try { this.view.webview.postMessage({ type: "session-loaded", sessionId, messages: [] }); } catch {}
+      const errMsg = e instanceof Error ? e.message : String(e);
+      this.log(`loadSessionMessages error: ${errMsg}`);
+      try { this.view.webview.postMessage({ type: "session-loaded", sessionId, messages: [], error: errMsg }); } catch {}
     }
   }
 

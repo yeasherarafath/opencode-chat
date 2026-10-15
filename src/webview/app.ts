@@ -12,6 +12,7 @@ import {
   XCircle,
 } from "lucide-static";
 import { marked } from "marked";
+import { truncateText, truncateLines, summarizeToolInput, normalizePatchFiles, classifyDiffLine, diffLines, parseUnifiedDiff, tokensTotal, contextTokens, formatTokens } from "../ReasoningUtils";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, a?: Record<string, string>, c?: (HTMLElement | Text)[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -26,7 +27,15 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, a?: Record<string, st
 function txt(t: string): Text { return document.createTextNode(t); }
 
 function highlightCode(code: string, lang: string): string {
-  const KEYWORDS = "async|await|break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|from|function|if|import|in|instanceof|let|new|of|return|static|super|switch|this|throw|try|typeof|var|void|while|with|yield|true|false|null|undefined".split("|");
+  const L = (lang || "").toLowerCase().replace(/^\./, "");
+  const JS = "async|await|break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|from|function|if|import|in|instanceof|let|new|of|return|static|super|switch|this|throw|try|typeof|var|void|while|with|yield|true|false|null|undefined";
+  const PHP_EXTRA = "echo|print|public|private|protected|namespace|use|require|include|require_once|include_once|fn|match|interface|trait|extends|implements|new|clone|as|foreach|endforeach|endif|endwhile|declare|global|static|abstract|final|const|function|return|if|else|elseif|while|do|for|switch|case|break|continue|try|catch|finally|throw|true|false|null";
+  const PY_EXTRA = "def|class|return|if|elif|else|for|while|import|from|as|with|try|except|finally|raise|lambda|pass|yield|global|nonlocal|assert|del|None|True|False|and|or|not|in|is";
+  let KEYWORDS: string[];
+  if (L === "php") KEYWORDS = (JS + "|" + PHP_EXTRA).split("|");
+  else if (L === "py" || L === "python") KEYWORDS = (JS + "|" + PY_EXTRA).split("|");
+  else KEYWORDS = JS.split("|");
+  const isHtml = L === "html" || L === "xml" || L === "vue" || L === "blade" || L === "blade.php";
 
   const lines = code.split("\n");
   const out: string[] = [];
@@ -60,10 +69,32 @@ function highlightCode(code: string, lang: string): string {
         i = end + 2;
         continue;
       }
-      // line comment
+      // line comment (//, # for php/py/shell; <!-- for html)
       if (line[i] === "/" && line[i + 1] === "/") {
         result += '<span class="hl-comment">' + esc(line.slice(i)) + "</span>";
         break;
+      }
+      if (line[i] === "#" && (L === "php" || L === "py" || L === "python" || L === "sh" || L === "yml" || L === "yaml" || L === "rb")) {
+        result += '<span class="hl-comment">' + esc(line.slice(i)) + "</span>";
+        break;
+      }
+      if (isHtml && line[i] === "<" && line.slice(i, i + 4) === "<!--") {
+        const end = line.indexOf("-->", i + 4);
+        if (end === -1) {
+          result += '<span class="hl-comment">' + esc(line.slice(i)) + "</span>";
+          break;
+        }
+        result += '<span class="hl-comment">' + esc(line.slice(i, end + 3)) + "</span>";
+        i = end + 3;
+        continue;
+      }
+      // PHP variable $foo
+      if ((L === "php" || line[i] === "$") && line[i] === "$" && i + 1 < line.length && /[a-zA-Z_\x80-\xff]/.test(line[i + 1])) {
+        let j = i + 1;
+        while (j < line.length && /[\w$\x80-\xff]/.test(line[j])) j++;
+        result += '<span class="hl-prop">' + esc(line.slice(i, j)) + "</span>";
+        i = j;
+        continue;
       }
       // string single
       if (line[i] === "'" || line[i] === '"') {
@@ -138,6 +169,172 @@ function highlightCode(code: string, lang: string): string {
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function langFromPath(p: string): string {
+  const m = /\.([a-z0-9]+)$/i.exec(p || "");
+  return (m && m[1].toLowerCase()) || "";
+}
+
+function renderToolOutput(outText: string, toolName: string, filePath: string, pattern = ""): HTMLElement {
+  const box = el("div", { className: "tool-result-content" });
+  if (toolName === "read" || toolName === "edit" || toolName === "write") {
+    box.appendChild(renderNumberedCode(truncateLines(outText, 60, 4000), langFromPath(filePath), toolName === "read"));
+  } else if (toolName === "grep" || toolName === "search") {
+    box.appendChild(renderGrepOutput(outText, pattern) || txt(truncateLines(outText, 30, 2000)));
+  } else {
+    box.appendChild(txt(truncateLines(outText, 30, 2000)));
+  }
+  return box;
+}
+
+function renderNumberedCode(code: string, lang: string, parseReadNos: boolean): HTMLElement {
+  const wrap = el("div", { className: "code-numbered" });
+  const html = highlightCode(code, lang);
+  const lines = html.split("\n");
+  let autoNo = 1;
+  for (const lineHtml of lines) {
+    // Strip server "NNNN: " prefixes from read output into the gutter.
+    let no: string = String(autoNo);
+    let body = lineHtml;
+    if (parseReadNos) {
+      const m = /^\s*(\d+):\s?([\s\S]*)$/.exec(stripTags(lineHtml));
+      if (m) {
+        no = m[1];
+        body = highlightCode(m[2], lang);
+      } else if (/^\s*Read file\b/.test(stripTags(lineHtml))) {
+        const hdr = el("div", { className: "code-read-hdr" });
+        hdr.textContent = stripTags(lineHtml).trim();
+        wrap.appendChild(hdr);
+        continue;
+      }
+    }
+    const row = el("div", { className: "code-line" });
+    const gutter = el("span", { className: "code-no" }, [txt(no)]);
+    const tx = el("span", { className: "code-tx" });
+    tx.innerHTML = body || " ";
+    row.append(gutter, tx);
+    wrap.appendChild(row);
+    autoNo++;
+  }
+  return wrap;
+}
+
+function stripTags(html: string): string {
+  return html.replace(/<[^>]*>/g, "");
+}
+
+function renderDiffLines(patch: string | undefined, maxLines = 200): HTMLElement | null {
+  const { lines, truncated } = diffLines(patch, maxLines);
+  if (!lines.length) return null;
+  const wrap = el("pre", { className: "diff-lines" });
+  for (const line of lines) {
+    const kind = classifyDiffLine(line);
+    const row = el("div", { className: "diff-line diff-" + kind });
+    row.textContent = line || " ";
+    wrap.appendChild(row);
+  }
+  if (truncated > 0) {
+    const more = el("div", { className: "diff-more" }, [txt(`… ${truncated} more lines (see Metadata)` )]);
+    wrap.appendChild(more);
+  }
+  return wrap;
+}
+
+function renderFileDiffBlock(entry: { file: string; patch?: string; status?: string; additions?: number; deletions?: number }): HTMLElement {
+  const fileEl = el("div", { className: "patch-file-block" });
+  const tab = el("div", { className: "patch-tab" });
+  const link = el("span", { className: "patch-file-link" });
+  link.innerHTML = File + " " + esc(entry.file);
+  link.onclick = () => { vscode.postMessage({ type: "open-file", path: entry.file }); };
+  tab.appendChild(link);
+  const badges: string[] = [];
+  if (typeof entry.additions === "number") badges.push("+" + entry.additions);
+  if (typeof entry.deletions === "number") badges.push("-" + entry.deletions);
+  if (entry.status) badges.push(entry.status);
+  if (badges.length) tab.appendChild(el("span", { className: "patch-badges" }, [txt(badges.join(" · "))]));
+  fileEl.appendChild(tab);
+  const diffEl = renderDiffTable(entry.patch);
+  if (diffEl) fileEl.appendChild(diffEl);
+  return fileEl;
+}
+
+function renderDiffTable(patch: string | undefined, maxRows = 200): HTMLElement | null {
+  const { rows, truncated } = parseUnifiedDiff(patch, maxRows);
+  if (!rows.length) return null;
+  const table = el("div", { className: "diff-table" });
+  for (const r of rows) {
+    if (r.kind === "header") {
+      table.appendChild(el("div", { className: "diff-file-hdr" }, [txt(r.text)]));
+      continue;
+    }
+    const row = el("div", { className: "diff-row diff-" + r.kind });
+    row.appendChild(el("span", { className: "diff-gutter" }, [txt(r.oldNo != null ? String(r.oldNo) : "")]));
+    row.appendChild(el("span", { className: "diff-gutter" }, [txt(r.newNo != null ? String(r.newNo) : "")]));
+    const code = el("span", { className: "diff-code" });
+    code.innerHTML = highlightCode(r.text, "");
+    row.appendChild(code);
+    table.appendChild(row);
+  }
+  if (truncated > 0) table.appendChild(el("div", { className: "diff-more" }, [txt(`… ${truncated} more lines (see Metadata)`)]));
+  return table;
+}
+
+function escReg(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function renderGrepOutput(outText: string, pattern: string): HTMLElement | null {
+  const text = truncateLines(outText, 60, 4000);
+  const lines = text.split("\n");
+  const wrap = el("div", { className: "grep-results" });
+  let rows = 0;
+  let currentFile: string | null = null;
+  const patRe = pattern ? new RegExp("(" + escReg(pattern) + ")", "gi") : null;
+  const mark = (code: string): string => {
+    const highlighted = highlightCode(code, "");
+    if (!patRe) return highlighted;
+    // Highlight matches inside text nodes only (skip inserted span tags).
+    return highlighted.replace(/([^<>]+)(?=<|$)/g, (seg) => seg.replace(patRe, "<mark>$1</mark>"));
+  };
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+    if (!line.trim()) continue;
+    const fileM = /^(.+\.\w+):$/.exec(line.trim());
+    if (fileM) {
+      currentFile = fileM[1];
+      const hdr = el("div", { className: "grep-file" });
+      const link = el("span", { className: "patch-file-link" });
+      link.innerHTML = File + " " + esc(currentFile);
+      link.onclick = () => { vscode.postMessage({ type: "open-file", path: currentFile! }); };
+      hdr.appendChild(link);
+      wrap.appendChild(hdr);
+      continue;
+    }
+    const m = /^\s*Line (\d+):\s?([\s\S]*)$/i.exec(line);
+    if (m && currentFile) {
+      const row = el("div", { className: "grep-row" });
+      const no = el("span", { className: "code-no" }, [txt(m[1])]);
+      no.onclick = () => { vscode.postMessage({ type: "open-file", path: currentFile! }); };
+      const code = el("span", { className: "code-tx" });
+      code.innerHTML = mark(m[2]) || " ";
+      row.append(no, code);
+      wrap.appendChild(row);
+      rows++;
+      continue;
+    }
+    if (/^Found \d+ match/i.test(line.trim())) {
+      wrap.appendChild(el("div", { className: "grep-summary" }, [txt(line.trim())]));
+      continue;
+    }
+    const row = el("div", { className: "grep-row" });
+    const code = el("span", { className: "code-tx" });
+    code.innerHTML = mark(line) || " ";
+    row.appendChild(code);
+    wrap.appendChild(row);
+    rows++;
+  }
+  return rows > 0 ? wrap : null;
 }
 
 function renderThinkBlock(content: string): HTMLElement {
@@ -335,6 +532,7 @@ class App {
   private streamingSeenPartIds: Set<string> = new Set();
   private sessionTokens: Msg["tokens"] | null = null;
   private sessionCost: number | null = null;
+  private sessionLoadError = "";
   private pendingSmoothScroll = false;
   private slashMenuEl!: HTMLElement;
   private sessionSearchInput!: HTMLInputElement;
@@ -976,22 +1174,47 @@ class App {
   }
 
   private computeTokenTotal(): { tokens: number; cost: number } {
-    let lastTokens = 0;
+    // Header matches the CLI ("569.4k (54%)" = share of context window).
+    // Verified vs export ses_ebff13c67ffea3BvZAFwSfsJIW: session lifetime
+    // input 1205584 + output 114219 + reasoning 62365 (≈1.38M, the old
+    // wrong header 1352.8k) while each late request carries input ~500 +
+    // cache.read ~586k (≈587k ≈ CLI 569.4k + drift). Token fields are
+    // cumulative snapshots — never sum them. Session-level cache.read is
+    // lifetime-cumulative (167M) so only the latest request's
+    // input + cache.read (contextTokens) is meaningful.
+    // Streaming parts are included so the count stays live with the CLI
+    // while a response is still generating.
+    let ctx = 0;
     let totalCost = 0;
-    for (const msg of this.state.messages) {
-      if (msg.parts) {
-        for (const part of msg.parts as any[]) {
-          if (part.type === "step-finish") {
-            const t = part.tokens;
-            if (t) {
-              lastTokens = t.total || (t.input || 0) + (t.output || 0) + (t.reasoning || 0);
-            }
-            if (part.cost) totalCost += part.cost;
+    let hasTokens = false;
+    const scan = (parts: unknown[] | undefined) => {
+      if (!parts) return;
+      for (const part of parts as any[]) {
+        if (part.type === "step-finish" && part.tokens) {
+          const v = contextTokens(part.tokens as Record<string, unknown>);
+          if (v > 0) {
+            ctx = v;
+            hasTokens = true;
           }
+          if (part.cost) totalCost += part.cost;
         }
       }
+    };
+    for (const msg of this.state.messages) {
+      const mt = (msg as any).tokens as Record<string, unknown> | undefined;
+      if (mt) {
+        const v = contextTokens(mt);
+        if (v > 0) {
+          ctx = v;
+          hasTokens = true;
+        }
+        if (typeof (msg as any).cost === "number") totalCost += (msg as any).cost as number;
+      }
+      scan((msg as any).parts as unknown[] | undefined);
     }
-    return { tokens: lastTokens, cost: this.sessionCost ?? totalCost };
+    scan(this.streamingParts as unknown[] | undefined);
+    if (!hasTokens) ctx = 0;
+    return { tokens: Math.round(ctx), cost: this.sessionCost ?? totalCost };
   }
 
   private updateTokenDisplay(): void {
@@ -1003,7 +1226,7 @@ class App {
     this.tokenDisplayEl.classList.remove("hidden");
     const parts: string[] = [];
     if (tokens) {
-      parts.push(tokens >= 1000 ? (tokens / 1000).toFixed(1) + "k tokens" : tokens + " tokens");
+      parts.push(formatTokens(tokens));
     }
     if (cost) parts.push("$" + cost.toFixed(4));
     this.tokenDisplayEl.textContent = " \u00B7 " + parts.join(" \u00B7 ");
@@ -1242,6 +1465,17 @@ class App {
         this.chatArea.appendChild(card);
         return;
       }
+      if (this.sessionLoadError && this.state.currentSessionId) {
+        const wrap = el("div", { className: "empty" }, [
+          txt("Could not load this session."),
+          el("div", { className: "cmd-hint" }, [txt(this.sessionLoadError.slice(0, 300))]),
+        ]);
+        const retry = el("button", { className: "q-submit" }, [txt("Retry")]);
+        retry.onclick = () => this.refreshSession();
+        wrap.appendChild(retry);
+        this.chatArea.appendChild(wrap);
+        return;
+      }
       this.chatArea.appendChild(el("div", { className: "empty" }, [
         txt("Start a conversation with OpenCode."),
         el("div", { className: "cmd-hint" }, [txt("Type / for commands · Ctrl+F to search · Cmd ▼ for actions")]),
@@ -1347,8 +1581,11 @@ class App {
         bubble.appendChild(this.renderQuestionCard(qs, qReadOnly));
       } else if ((part.type === "tool_use" || part.type === "tool-call" || part.type === "tool") && (part as any).tool === "task") {
         bubble.appendChild(this.renderTaskCard(part as Record<string, unknown>));
-      } else if (part.type === "tool_use" || part.type === "tool-call") {
-        // Enhanced tool call with state awareness
+      } else if (part.type === "tool_use" || part.type === "tool-call" || part.type === "tool") {
+        // Enhanced tool call with state awareness (v1 `tool` + v2 `tool_use`).
+        // NOTE: `tool` must be included — v1 ToolPart and v2 convertAssistant
+        // both emit type "tool" (e.g. edit). Missing it hides the updated-file card
+        // while reasoning still mentions the file.
         const st = (part as any).state as Record<string, unknown> | undefined;
         const toolName = (part as any).name || (part as any).tool || "unknown";
         const callID = (part as any).callID || "";
@@ -1373,23 +1610,54 @@ class App {
         nameLine.innerHTML = "<span class='" + spinClass + "'>" + icon + "</span> Tool: " + toolName + (durStr ? " \u00B7 " + durStr : "") + (callID ? " \u00B7 " + callID.slice(0, 12) : "");
         tc.appendChild(nameLine);
 
-        // collapsible input/output
+        // Diff view: content directly, no Input:/Output:/Metadata: labels.
         const details = el("div", { className: "tool-details hidden" });
+        // metadata first: when a unified patch is available the Old/New full
+        // blocks below would repeat the same unchanged lines twice, so skip them.
+        const meta = (st?.metadata || (part as any).metadata) as Record<string, unknown> | undefined;
+        const metaFilesNorm = normalizePatchFiles((meta as any)?.files).filter((e) => !isHiddenArtifactPath(e.file));
+        const hasUnifiedPatch = metaFilesNorm.some((e) => !!e.patch);
         if ((part as any).input || (part as any).arguments) {
-          details.appendChild(el("div", { className: "tool-detail-label" }, [txt("Input:")]));
-          details.appendChild(el("div", { className: "tool-input" }, [txt(JSON.stringify((part as any).input || (part as any).arguments || {}, null, 2))]));
+          const inp = ((part as any).input || (part as any).arguments || {}) as Record<string, unknown>;
+          if ((toolName === "edit" || toolName === "write") && (typeof (inp as any).newString === "string" || typeof (inp as any).oldString === "string" || typeof (inp as any).content === "string")) {
+            // Code format: path + old/new blocks instead of a JSON dump.
+            const ipath = String((inp as any).path || (inp as any).file || "");
+            if (ipath) details.appendChild(el("div", { className: "tool-path" }, [txt(ipath)]));
+            if (!hasUnifiedPatch) {
+              const oldCode = String((inp as any).oldString ?? "");
+              const newCode = String((inp as any).newString ?? (inp as any).content ?? "");
+              const renderCode = (code: string, cls: string, marker: string) => {
+                if (!code) return;
+                const wrap = el("div", { className: "tool-code-wrap " + cls });
+                wrap.setAttribute("data-side", marker);
+                wrap.appendChild(renderNumberedCode(truncateLines(code, 80, 4000), langFromPath(ipath), false));
+                details.appendChild(wrap);
+              };
+              renderCode(oldCode, "diff-del", "-");
+              renderCode(newCode, "diff-add", "+");
+            }
+          } else if (toolName !== "read" || (!st?.output && !st?.error)) {
+            // Read output already opens with its own "Read file … lines"
+            // header, so an Input summary row would repeat the same
+            // path:range line twice — show it only when no output arrived.
+            const isShell = toolName === "shell";
+            details.appendChild(el("div", { className: "tool-input" + (isShell ? " tool-input-shell" : "") }, [txt(summarizeToolInput(String(toolName), inp))]));
+          }
         }
         if (st?.output || st?.error) {
           const outText = (st?.output as string) || (st?.error as string) || "";
-          if (stStatus === "error") details.appendChild(el("div", { className: "tool-detail-label" }, [txt(AlertTriangle + " Error:")]));
-          else details.appendChild(el("div", { className: "tool-detail-label" }, [txt("Output:")]));
-          details.appendChild(el("div", { className: "tool-result-content" }, [txt(outText.length > 500 ? outText.slice(0, 500) + "..." : outText)]));
+          const inpForLang = ((part as any).input || (part as any).arguments || {}) as Record<string, unknown>;
+          const grepPat = String((inpForLang as any).pattern || (inpForLang as any).query || "");
+          details.appendChild(renderToolOutput(outText, String(toolName), String((inpForLang as any).path || (inpForLang as any).file || ""), grepPat));
         }
-        // metadata if present
-        const meta = (st?.metadata || (part as any).metadata) as Record<string, unknown> | undefined;
-        if (meta && Object.keys(meta).length) {
-          details.appendChild(el("div", { className: "tool-detail-label" }, [txt("Metadata:")]));
-          details.appendChild(el("div", { className: "tool-input" }, [txt(JSON.stringify(meta, null, 2))]));
+        // Updated files with formatted diff lines (rendered above in filesWrap).
+        if (metaFilesNorm.length) {
+          const filesWrap = el("div", { className: "tool-files" });
+          for (const entry of metaFilesNorm) filesWrap.appendChild(renderFileDiffBlock(entry));
+          tc.appendChild(filesWrap);
+        }
+        if (meta && Object.keys(meta).length && toolName !== "read" && !metaFilesNorm.length) {
+          details.appendChild(el("div", { className: "tool-input" }, [txt(truncateText(JSON.stringify(meta, null, 2), 2000))]));
         }
         if (details.children.length) {
           nameLine.onclick = () => { details.classList.toggle("hidden"); };
@@ -1404,6 +1672,8 @@ class App {
         bubble.appendChild(tr);
       }
       if (part.type === "reasoning") {
+        const rt = String((part as any).text || "").trim();
+        if (!rt) continue;
         const rc = document.createElement("div");
         rc.className = "reasoning";
         const hdr = document.createElement("div");
@@ -1416,6 +1686,12 @@ class App {
           const end = typeof pTime.end === "number" ? pTime.end : Date.now();
           const ms = end - (pTime.start as number);
           durStr = ms < 1000 ? Math.round(ms) + "ms" : Math.round(ms / 1000) + "s";
+        } else if (pTime && typeof (pTime as any).created === "number") {
+          // v2 shape: { created, completed } (e.g. reasoning parts from convertAssistant)
+          const start = (pTime as any).created as number;
+          const end = typeof (pTime as any).completed === "number" ? (pTime as any).completed as number : Date.now();
+          const ms = end - start;
+          if (ms >= 0) durStr = ms < 1000 ? Math.round(ms) + "ms" : Math.round(ms / 1000) + "s";
         }
         let infoParts = ["Reasoned for " + (durStr || "...")];
         if (pTokens?.input) infoParts.push("Input: " + pTokens.input + " tokens");
@@ -1427,8 +1703,7 @@ class App {
         hdr.appendChild(chevron);
         const body = document.createElement("div");
         body.className = "reasoning-body open";
-        const rt = String((part as any).text || "");
-        if (rt) body.appendChild(renderMarkdown(rt));
+        body.appendChild(renderMarkdown(rt));
         hdr.onclick = () => {
           const open = body.classList.toggle("open");
           chevron.classList.toggle("open", open);
@@ -1448,34 +1723,26 @@ class App {
         const tokens = (part as any).tokens as Record<string, unknown> | undefined;
         const costV = (part as any).cost as number | undefined;
         let info = "Step finished: " + reason;
-        if (tokens) info += " \u00B7 " + ((tokens as any).total || 0) + " tokens";
-        if (costV) info += " \u00B7 $" + costV;
+        if (tokens) info += " · " + tokensTotal(tokens) + " tokens";
+        if (costV) info += " · $" + costV;
         sf.textContent = info;
         bubble.appendChild(sf);
       }
       if (part.type === "patch") {
         const hash = (part as any).hash as string;
-        const rawFiles = (part as any).files as string[] | undefined;
-        const files = filterArtifactPaths(rawFiles);
-        const originalCount = rawFiles?.length || 0;
-        if (originalCount > 0 && files.length === 0) {
+        const entries = normalizePatchFiles((part as any).files).filter((e) => !isHiddenArtifactPath(e.file));
+        const rawLen = Array.isArray((part as any).files) ? (part as any).files.length : 0;
+        if (rawLen > 0 && entries.length === 0) {
           // every file in this patch is a debug artifact (logs/, etc.) — hide entirely
           continue;
         }
         const pc = el("div", { className: "patch" });
         const hdr = el("div", { className: "patch-header" });
-        const fileCount = files.length;
+        const fileCount = entries.length;
         hdr.innerHTML = GitPullRequest + ' ' + fileCount + ' file(s) changed' + (hash ? ' \u00B7 hash ' + hash.slice(0, 8) : '');
         const body = el("div", { className: "patch-body hidden" });
-        if (files.length) {
-          for (const f of files) {
-            const fileEl = el("div", { className: "patch-file" });
-            const link = el("span", { className: "patch-file-link" });
-            link.innerHTML = File + " " + f;
-            link.onclick = () => { vscode.postMessage({ type: "open-file", path: f }); };
-            fileEl.appendChild(link);
-            body.appendChild(fileEl);
-          }
+        if (entries.length) {
+          for (const entry of entries) body.appendChild(renderFileDiffBlock(entry));
         }
         hdr.onclick = () => { body.classList.toggle("hidden"); };
         hdr.style.cursor = "pointer";
@@ -1707,8 +1974,8 @@ class App {
     tc.appendChild(nameLine);
     const details = el("div", { className: "tool-details hidden" });
     if (input) {
-      details.appendChild(el("div", { className: "tool-detail-label" }, [txt("Input:")]));
-      details.appendChild(el("div", { className: "tool-input" }, [txt(JSON.stringify(input, null, 2))]));
+      const shellCls = String(name || "tool") === "shell" ? " tool-input-shell" : "";
+      details.appendChild(el("div", { className: "tool-input" + shellCls }, [txt(summarizeToolInput(String(name || "tool"), (input || {}) as Record<string, unknown>))]));
     }
     if (details.children.length) {
       nameLine.onclick = () => { details.classList.toggle("hidden"); };
@@ -1723,7 +1990,7 @@ class App {
     this.scrollToBottom(false);
   }
 
-  private appendStreamingToolResult(partId: string, output: string, isError: boolean, name: string): void {
+  private appendStreamingToolResult(partId: string, output: string, isError: boolean, name: string, metadata?: Record<string, unknown>): void {
     this.ensureStreamingParts();
     let tc = partId ? this.streamingToolEls.get(partId) : undefined;
     if (!tc) {
@@ -1759,10 +2026,24 @@ class App {
       }
       // remove previous output rows so repeated tool-result events don't stack
       details.querySelectorAll(".tool-output-row").forEach((n) => n.remove());
-      const labelRow = el("div", { className: "tool-detail-label tool-output-row" }, [txt(isError ? "Error:" : "Output:")]);
-      const contentRow = el("div", { className: "tool-result-content tool-output-row" }, [txt(output.length > 500 ? output.slice(0, 500) + "..." : output)]);
-      details.appendChild(labelRow);
+      const contentRow = el("div", { className: "tool-result-content tool-output-row" });
+      if (name === "read" || name === "edit" || name === "write") {
+        contentRow.appendChild(renderNumberedCode(truncateLines(output, 60, 4000), "", name === "read"));
+      } else {
+        contentRow.appendChild(txt(truncateLines(output, 30, 2000)));
+      }
       details.appendChild(contentRow);
+    }
+    const entries = normalizePatchFiles((metadata as any)?.files).filter((e) => !isHiddenArtifactPath(e.file));
+    if (entries.length) {
+      let filesWrap = tc.querySelector(".tool-files") as HTMLElement | null;
+      if (!filesWrap) {
+        filesWrap = el("div", { className: "tool-files" });
+        tc.appendChild(filesWrap);
+      } else {
+        filesWrap.innerHTML = "";
+      }
+      for (const entry of entries) filesWrap.appendChild(renderFileDiffBlock(entry));
     }
     this.scrollToBottom(false);
   }
@@ -1784,33 +2065,25 @@ class App {
       const tokens = (part as any).tokens as Record<string, unknown> | undefined;
       const costV = (part as any).cost as number | undefined;
       let info = "Step finished: " + reason;
-      if (tokens) info += " \u00B7 " + ((tokens as any).total || 0) + " tokens";
-      if (costV) info += " \u00B7 $" + costV;
+      if (tokens) info += " · " + tokensTotal(tokens) + " tokens";
+      if (costV) info += " · $" + costV;
       card = el("div", { className: "step-finish" });
       card.textContent = info;
     } else if (type === "patch") {
       const hash = (part as any).hash as string;
-      const rawFiles = (part as any).files as string[] | undefined;
-      const files = filterArtifactPaths(rawFiles);
-      const originalCount = rawFiles?.length || 0;
-      if (originalCount > 0 && files.length === 0) {
+      const entries = normalizePatchFiles((part as any).files).filter((e) => !isHiddenArtifactPath(e.file));
+      const rawLen = Array.isArray((part as any).files) ? (part as any).files.length : 0;
+      if (rawLen > 0 && entries.length === 0) {
         // patch only touched debug artifacts — skip rendering
         return;
       }
-      const fileCount = files.length;
+      const fileCount = entries.length;
       card = el("div", { className: "patch" });
       const hdr = el("div", { className: "patch-header" });
       hdr.innerHTML = GitPullRequest + " " + fileCount + " file(s) changed" + (hash ? " \u00B7 hash " + hash.slice(0, 8) : "");
       const body = el("div", { className: "patch-body hidden" });
-      if (files.length) {
-        for (const f of files) {
-          const fileEl = el("div", { className: "patch-file" });
-          const link = el("span", { className: "patch-file-link" });
-          link.innerHTML = File + " " + f;
-          link.onclick = () => { vscode.postMessage({ type: "open-file", path: f }); };
-          fileEl.appendChild(link);
-          body.appendChild(fileEl);
-        }
+      if (entries.length) {
+        for (const entry of entries) body.appendChild(renderFileDiffBlock(entry));
       }
       hdr.onclick = () => { body.classList.toggle("hidden"); };
       hdr.style.cursor = "pointer";
@@ -2186,6 +2459,7 @@ class App {
   private newSession(): void {
     this.sessionTokens = null;
     this.sessionCost = null;
+    this.sessionLoadError = "";
     this.state.currentSessionId = null;
     this.state.showSessions = true;
     this.state.isRunning = false;
@@ -2214,6 +2488,7 @@ class App {
   private switchSession(id: string): void {
     this.sessionTokens = null;
     this.sessionCost = null;
+    this.sessionLoadError = "";
     this.state.currentSessionId = id;
     this.state.showSessions = false;
     this.sessionsPanel.classList.add("hidden");
@@ -2232,6 +2507,7 @@ class App {
     if (!id) return;
     this.sessionTokens = null;
     this.sessionCost = null;
+    this.sessionLoadError = "";
     this.setStatus("busy", "Refreshing...");
     this.state.messages = [];
     this.state.sessionLoading = true;
@@ -2298,9 +2574,13 @@ class App {
             if (sessionData) {
               this.sessionTokens = (sessionData.tokens as Msg["tokens"]) || null;
               this.sessionCost = (sessionData.cost as number) ?? null;
+            } else {
+              this.sessionTokens = null;
+              this.sessionCost = null;
             }
+            this.sessionLoadError = (msg.error as string) || "";
           }
-          const raw = msg.messages as Record<string, unknown>[];
+          const raw = (msg.messages as Record<string, unknown>[]) || [];
           this.state.messages = raw.map((m) => {
             const info = (m as any).info || {};
             let parts = (m.parts || info.parts) as unknown[] | undefined;
@@ -2317,21 +2597,26 @@ class App {
                 return p;
               });
               if (extracted.length) {
-                const combined = extracted.join("\n\n");
-                const existing = cleanedParts.find((p: any) => p.type === "reasoning");
-                if (existing) {
-                  existing.text = (existing.text ? existing.text + "\n\n" : "") + combined;
-                } else {
-                  cleanedParts.push({ type: "reasoning", text: combined });
+                const combined = extracted.join("\n\n").trim();
+                if (combined) {
+                  const existing = cleanedParts.find((p: any) => p.type === "reasoning");
+                  if (existing) {
+                    existing.text = (existing.text ? existing.text + "\n\n" : "") + combined;
+                  } else {
+                    cleanedParts.push({ type: "reasoning", text: combined });
+                  }
                 }
               }
-              parts = cleanedParts;
+              // Drop empty reasoning blocks (tool-only steps) so the UI
+              // doesn't render blank "Reasoned for ..." cards.
+              parts = cleanedParts.filter((p: any) => p.type !== "reasoning" || String(p.text || "").trim().length > 0);
             }
             let content = (m.content as string) || info.content || "";
             if (!content && parts) {
               content = parts
-                .filter((p: any) => p.type === "text" || p.type === "content" || p.type === "reasoning")
+                .filter((p: any) => p.type === "text" || p.type === "content" || (p.type === "reasoning" && String(p.text || "").trim()))
                 .map((p: any) => p.text || p.content || "")
+                .filter((t: string) => String(t || "").trim().length > 0)
                 .join("\n");
             }
             content = content.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, "").trim();
@@ -2403,7 +2688,7 @@ class App {
           this.finalizeStreaming();
           if (!this.streamingSaved) {
             const parts = [...this.streamingParts];
-            if (this.streamingReasoning) {
+            if (this.streamingReasoning.trim()) {
               parts.push({ type: "reasoning", text: this.streamingReasoning });
             }
             if (this.streamingContent || parts.length) {
@@ -2596,7 +2881,7 @@ class App {
         const parts = (event.parts as unknown[]) || (info.parts as unknown[]) || [];
         let text = (event.content as string) || (event.text as string) || (info.content as string) || "";
         if (!text && parts.length) {
-          const textParts = (parts as any[]).filter((p: any) => p.type === "text" || p.type === "reasoning");
+          const textParts = (parts as any[]).filter((p: any) => p.type === "text" || (p.type === "reasoning" && String(p.text || "").trim()));
           text = textParts.map((p: any) => p.text || "").join("\n");
         }
         const model = (event.modelID as string) || (info.modelID as string) || (info.model && (info.model as any).modelID) || "";
@@ -2638,19 +2923,24 @@ class App {
               return p;
             });
             if (extracted.length) {
-              const combined = extracted.join("\n\n");
-              const existing = finalParts.find((p: any) => p.type === "reasoning");
-              if (existing) {
-                existing.text = (existing.text ? existing.text + "\n\n" : "") + combined;
-              } else {
-                finalParts = [...finalParts, { type: "reasoning", text: combined }];
+              const combined = extracted.join("\n\n").trim();
+              if (combined) {
+                const existing = finalParts.find((p: any) => p.type === "reasoning");
+                if (existing) {
+                  existing.text = (existing.text ? existing.text + "\n\n" : "") + combined;
+                } else {
+                  finalParts = [...finalParts, { type: "reasoning", text: combined }];
+                }
               }
             }
             // also strip think from `text` content field if present
             text = text.replace(/\u003cthink\u003e([\s\S]*?)\u003c\/think\u003e/g, "").trim();
+            // Drop empty reasoning blocks (tool-only steps) so the UI
+            // doesn't render blank "Reasoned for ..." cards.
+            finalParts = finalParts.filter((p: any) => p.type !== "reasoning" || String(p.text || "").trim().length > 0);
           }
           // Preserve streamed reasoning if the final parts don't include it
-          if (this.streamingReasoning && (!finalParts || !finalParts.some(p => p.type === "reasoning"))) {
+          if (this.streamingReasoning.trim() && (!finalParts || !finalParts.some((p: any) => p.type === "reasoning" && String((p as any).text || "").trim()))) {
             finalParts = [...(finalParts || []), { type: "reasoning", text: this.streamingReasoning }];
           }
           const newMsg: Msg = { role, content: text, parts: finalParts, model, time, finish, mode, tokens, cost, id };
@@ -2708,13 +2998,14 @@ class App {
         const output = (event.content as string) || (event.output as string) || "";
         const partId = (event.id as string) || "";
         const isError = !!(event.error || (event as any).isError);
+        const metadata = (event.metadata as Record<string, unknown> | undefined) || ((event as any).part as any)?.metadata;
         if (name === "task") this.appendStreamingTask("", "done");
-        else this.appendStreamingToolResult(partId, output, isError, name);
+        else this.appendStreamingToolResult(partId, output, isError, name, metadata);
         // update last matching tool part with result
         for (let i = this.streamingParts.length - 1; i >= 0; i--) {
           const p = this.streamingParts[i];
           if (p.type === "tool_use" && (!partId || p.id === partId)) {
-            p.state = { ...(p.state as Record<string, unknown>), status: isError ? "error" : "completed", output, content: output };
+            p.state = { ...(p.state as Record<string, unknown>), status: isError ? "error" : "completed", output, content: output, ...(metadata ? { metadata } : {}) };
             break;
           }
         }

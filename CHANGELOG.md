@@ -2,6 +2,15 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.3.17] - 2026-10-15
+
+### In plain words
+- Chat no longer shows empty "thinking" boxes. Some steps used to display a blank reasoning header with nothing inside — those are now hidden.
+- Changed files show a proper red/green difference with line numbers, instead of a raw text dump.
+- The token counter at the bottom now matches the number the CLI shows.
+- Tool details are collapsible and trimmed: long file contents, big inputs and outputs no longer flood the chat, and read results show line numbers.
+- If a chat fails to load, you now see the actual error with a Retry button instead of a blank start screen.
+
 ## [0.3.16] - 2026-10-13
 
 ### Added

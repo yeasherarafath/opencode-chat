@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "node16",
+    "moduleResolution": "node16",
+    "target": "ES2022",
+    "outDir": "dist-test",
+    "rootDir": ".",
+    "types": ["node"],
+    "noImplicitAny": false,
+    "skipLibCheck": true
+  },
+  "include": ["src/ReasoningUtils.ts", "src/OpenCodeV2.ts", "src/JsonLogger.ts", "tests/*.test.ts"],
+  "exclude": ["src/webview", "src/extension.ts", "src/OpenCodeViewProvider.ts", "src/AuthProxy.ts", "src/OpenCodeCli.ts"]
+}

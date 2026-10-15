@@ -1,6 +1,7 @@
 // Client + adapters for the opencode v2 server API (`/api/*`).
 // v2 replaced the v1 REST surface wholesale; this module translates v2 data
 // into the v1 shapes the rest of the extension (and the webview) already use.
+import { isNonEmptyReasoningText } from "./ReasoningUtils";
 
 export interface V2Event {
   type: string;
@@ -85,8 +86,13 @@ export class V2Api {
     let cursor: string | undefined;
     const limit = 200;
     for (let page = 0; page < 50; page++) {
+      // Server rejects `order` combined with `cursor` (400) — send order
+      // only on the first page.
+      const query: Record<string, string | number | undefined> = cursor
+        ? { limit, cursor }
+        : { order: "asc", limit };
       const res = await this.request<{ data: any[]; cursor?: { next?: string | null } }>(
-        "GET", `/api/session/${sessionId}/message`, undefined, { order: "asc", limit, cursor }
+        "GET", `/api/session/${sessionId}/message`, undefined, query
       );
       const data = res.data ?? [];
       all.push(...data);
@@ -237,8 +243,20 @@ export function convertAssistant(m: any, sessionId: string): { info: Record<stri
   (m.content || []).forEach((c: any, i: number) => {
     const id = `${m.id}-${i}`;
     if (c.type === "text") parts.push({ id, sessionID: sessionId, messageID: m.id, type: "text", text: c.text || "" });
-    else if (c.type === "reasoning") parts.push({ id, sessionID: sessionId, messageID: m.id, type: "reasoning", text: c.text || "", time: c.time });
+    else if (c.type === "reasoning") {
+      // Skip empty reasoning blocks (tool-only steps create 0-length
+      // reasoning parts that would render as blank "Reasoned for ..." cards).
+      // Uses shared helper so UI/CLI stay in sync (see ReasoningUtils).
+      if (!isNonEmptyReasoningText(c.text)) return;
+      parts.push({ id, sessionID: sessionId, messageID: m.id, type: "reasoning", text: c.text || "", time: c.time });
+    }
     else if (c.type === "tool") parts.push(convertTool(c, m.id, sessionId));
+    else if (c.type === "file" || c.type === "patch" || c.type === "snapshot" || c.type === "agent" || c.type === "retry" || c.type === "compaction" || c.type === "step-start" || c.type === "step-finish") {
+      // Preserve file/patch and other bookkeeping parts so the UI can render
+      // the updated-file card. Previously only text/reasoning/tool survived,
+      // so reasoning could mention a file with no visible file part.
+      parts.push({ id, sessionID: sessionId, messageID: m.id, ...c });
+    }
   });
   if (m.finish || m.tokens) {
     parts.push({ id: `${m.id}-finish`, sessionID: sessionId, messageID: m.id, type: "step-finish", reason: m.finish || "", cost: m.cost || 0, tokens: m.tokens });
