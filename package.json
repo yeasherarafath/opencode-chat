@@ -203,7 +203,7 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
-    "@vscode/vsce": "^2.30.0",
+    "@vscode/vsce": "^4.0.0",
     "autoprefixer": "^10.5.0",
     "esbuild": "^0.28.1",
     "postcss": "^8.5.15",
