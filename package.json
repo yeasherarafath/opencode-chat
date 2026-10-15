@@ -2,7 +2,7 @@
   "name": "opencode-ai-chat",
   "displayName": "OpenCode AI Chat",
   "description": "Full-featured chat UI for OpenCode AI coding agent in VS Code, VS Codium, and compatible editors",
-  "version": "0.3.17-beta.1",
+  "version": "0.3.18",
   "publisher": "YasirArafat",
   "author": {
     "name": "Yasir Arafat",
@@ -214,6 +214,5 @@
     "@opencode-ai/sdk": "^1.17.4",
     "lucide-static": "^1.18.0",
     "marked": "^18.0.5"
-  },
-  "preview": true
+  }
 }
