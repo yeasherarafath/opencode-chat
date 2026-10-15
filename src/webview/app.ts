@@ -12,7 +12,7 @@ import {
   XCircle,
 } from "lucide-static";
 import { marked } from "marked";
-import { truncateText, truncateLines, prettyJsonOutput, summarizeToolInput, normalizePatchFiles, classifyDiffLine, diffLines, parseUnifiedDiff, tokensTotal, contextTokens, formatTokens } from "../ReasoningUtils";
+import { truncateText, truncateLines, prettyJsonOutput, summarizeToolInput, findQueryHits, normalizePatchFiles, classifyDiffLine, diffLines, parseUnifiedDiff, tokensTotal, contextTokens, formatTokens } from "../ReasoningUtils";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, a?: Record<string, string>, c?: (HTMLElement | Text)[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -1485,6 +1485,10 @@ class App {
       return;
     }
     for (const msg of this.state.messages) this.appendMessageDOM(msg);
+    // Re-apply find highlights — render wiped the DOM (marks included).
+    if (!this.searchBarEl.classList.contains("hidden") && this.searchInput.value) {
+      this.doSearch(this.searchInput.value, false);
+    }
     const smooth = this.pendingSmoothScroll;
     this.pendingSmoothScroll = false;
     if (smooth || wasAtBottom) {
@@ -3121,9 +3125,10 @@ class App {
     }
   }
 
-  private doSearch(query: string): void {
+  private doSearch(query: string, scroll = true): void {
     this.searchMatches = [];
     this.searchActiveIdx = -1;
+    this.clearSearchMarks();
     const msgs = this.chatArea.querySelectorAll<HTMLElement>(".msg");
     if (!query) {
       msgs.forEach(m => { m.classList.remove("search-match", "search-active"); });
@@ -3131,12 +3136,12 @@ class App {
       return;
     }
     const q = query.toLowerCase();
-    let idx = 0;
     msgs.forEach(m => {
       const text = (m.textContent || "").toLowerCase();
       if (text.includes(q)) {
         m.classList.add("search-match");
         m.classList.remove("search-active");
+        this.markQueryIn(m, query);
         this.searchMatches.push(m);
       } else {
         m.classList.remove("search-match", "search-active");
@@ -3145,11 +3150,60 @@ class App {
     if (this.searchMatches.length) {
       this.searchActiveIdx = 0;
       this.searchMatches[0].classList.add("search-active");
-      this.searchMatches[0].scrollIntoView({ behavior: "smooth", block: "center" });
+      this.updateActiveSearchHit(scroll);
     }
     this.searchNavEl.textContent = this.searchMatches.length
       ? (this.searchActiveIdx + 1) + "/" + this.searchMatches.length
       : "0/0";
+  }
+
+  /** Wrap every occurrence of the query in <mark> so found text is highlighted. */
+  private markQueryIn(root: HTMLElement, query: string): void {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    while (walker.nextNode()) {
+      const n = walker.currentNode as Text;
+      if ((n.parentElement)?.closest("mark.search-hit")) continue;
+      nodes.push(n);
+    }
+    for (const node of nodes) {
+      const text = node.textContent || "";
+      const hits = findQueryHits(text, query);
+      if (!hits.length) continue;
+      // Split back-to-front so earlier offsets stay valid.
+      let head: Text = node;
+      const qlen = query.length;
+      for (let h = hits.length - 1; h >= 0; h--) {
+        const at = hits[h];
+        head.splitText(at + qlen);
+        const hit = head.splitText(at);
+        const mark = document.createElement("mark");
+        mark.className = "search-hit";
+        mark.textContent = hit.textContent;
+        hit.parentNode!.replaceChild(mark, hit);
+      }
+    }
+  }
+
+  private clearSearchMarks(): void {
+    this.chatArea.querySelectorAll("mark.search-hit").forEach((mk) => {
+      const parent = mk.parentNode;
+      if (!parent) return;
+      parent.replaceChild(document.createTextNode(mk.textContent || ""), mk);
+      parent.normalize();
+    });
+  }
+
+  /** Move the strong highlight to marks inside the active message and scroll to them. */
+  private updateActiveSearchHit(scroll = true): void {
+    this.chatArea.querySelectorAll("mark.search-hit-active").forEach((mk) => mk.classList.remove("search-hit-active"));
+    const active = this.searchMatches[this.searchActiveIdx];
+    if (!active) return;
+    active.querySelectorAll("mark.search-hit").forEach((mk) => mk.classList.add("search-hit-active"));
+    if (scroll) {
+      const first = active.querySelector("mark.search-hit-active");
+      (first || active).scrollIntoView({ behavior: "smooth", block: "center" });
+    }
   }
 
   private searchNext(): void {
@@ -3157,7 +3211,7 @@ class App {
     this.searchMatches[this.searchActiveIdx]?.classList.remove("search-active");
     this.searchActiveIdx = (this.searchActiveIdx + 1) % this.searchMatches.length;
     this.searchMatches[this.searchActiveIdx].classList.add("search-active");
-    this.searchMatches[this.searchActiveIdx].scrollIntoView({ behavior: "smooth", block: "center" });
+    this.updateActiveSearchHit();
     this.searchNavEl.textContent = (this.searchActiveIdx + 1) + "/" + this.searchMatches.length;
   }
 
@@ -3166,7 +3220,7 @@ class App {
     this.searchMatches[this.searchActiveIdx]?.classList.remove("search-active");
     this.searchActiveIdx = (this.searchActiveIdx - 1 + this.searchMatches.length) % this.searchMatches.length;
     this.searchMatches[this.searchActiveIdx].classList.add("search-active");
-    this.searchMatches[this.searchActiveIdx].scrollIntoView({ behavior: "smooth", block: "center" });
+    this.updateActiveSearchHit();
     this.searchNavEl.textContent = (this.searchActiveIdx + 1) + "/" + this.searchMatches.length;
   }
 

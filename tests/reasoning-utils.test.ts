@@ -16,6 +16,7 @@ import {
   truncateLines,
   prettyJsonOutput,
   summarizeToolInput,
+  findQueryHits,
   tokensTotal,
   contextTokens,
   formatTokens,
@@ -219,6 +220,13 @@ describe("truncate/summarize tool payloads", () => {
   it("prettyJsonOutput indents JSON, passes text through", () => {
     assert.equal(prettyJsonOutput('["a","b"]'), '[\n "a",\n "b"\n]');
     assert.equal(prettyJsonOutput("plain text"), "plain text");
+  });
+  it("findQueryHits finds case-insensitive offsets", () => {
+    assert.deepEqual(findQueryHits("Hello hello HELLO", "hello"), [0, 6, 12]);
+    assert.deepEqual(findQueryHits("no match here", "zzz"), []);
+    assert.deepEqual(findQueryHits("", "a"), []);
+    assert.deepEqual(findQueryHits("abc", ""), []);
+    assert.deepEqual(findQueryHits("aaa", "aa"), [0]);
   });
 });
 

@@ -2,6 +2,12 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.3.17-beta.1] - 2026-10-15
+
+### In plain words
+- Chat search (Ctrl+F) now highlights the found words inside messages in yellow, with the current match in orange — before, only the whole message bubble was tinted.
+- Tool cards for `execute` steps show a one-line code summary with pretty-printed output instead of a raw JSON dump.
+
 ## [0.3.17] - 2026-10-15
 
 ### In plain words
