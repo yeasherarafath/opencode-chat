@@ -157,6 +157,15 @@ export function truncateText(text: string, max = 1000): string {
   return cut + `\n… (+${text.length - max} more chars)`;
 }
 
+/** Pretty-print JSON tool output (e.g. execute results) — raw text otherwise. */
+export function prettyJsonOutput(text: string): string {
+  try {
+    return JSON.stringify(JSON.parse(text), null, 1);
+  } catch {
+    return text;
+  }
+}
+
 /** Truncate code-ish output by lines (reads better than char cuts). */
 export function truncateLines(text: string, maxLines = 30, maxChars = 2000): string {
   if (!text) return "";
@@ -217,6 +226,11 @@ export function summarizeToolInput(tool: string, input: Record<string, unknown> 
     if (tool === "shell") {
       const cmd = String((input as any).command || "");
       if (cmd) return "$ " + truncateText(cmd, 300);
+    }
+    if (tool === "execute") {
+      const code = String((input as any).code || "");
+      const first = code.split("\n").map((s) => s.trim()).find((s) => s.length) || "";
+      return truncateText(first, 160) + (code.length > 200 ? `  ·  ${code.length} chars` : "");
     }
     return truncateText(JSON.stringify(input, null, 2), 2000);
   } catch {

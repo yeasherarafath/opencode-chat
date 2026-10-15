@@ -12,7 +12,7 @@ import {
   XCircle,
 } from "lucide-static";
 import { marked } from "marked";
-import { truncateText, truncateLines, summarizeToolInput, normalizePatchFiles, classifyDiffLine, diffLines, parseUnifiedDiff, tokensTotal, contextTokens, formatTokens } from "../ReasoningUtils";
+import { truncateText, truncateLines, prettyJsonOutput, summarizeToolInput, normalizePatchFiles, classifyDiffLine, diffLines, parseUnifiedDiff, tokensTotal, contextTokens, formatTokens } from "../ReasoningUtils";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, a?: Record<string, string>, c?: (HTMLElement | Text)[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -182,6 +182,8 @@ function renderToolOutput(outText: string, toolName: string, filePath: string, p
     box.appendChild(renderNumberedCode(truncateLines(outText, 60, 4000), langFromPath(filePath), toolName === "read"));
   } else if (toolName === "grep" || toolName === "search") {
     box.appendChild(renderGrepOutput(outText, pattern) || txt(truncateLines(outText, 30, 2000)));
+  } else if (toolName === "execute") {
+    box.appendChild(txt(truncateLines(prettyJsonOutput(outText), 30, 2000)));
   } else {
     box.appendChild(txt(truncateLines(outText, 30, 2000)));
   }
@@ -1640,7 +1642,7 @@ class App {
             // Read output already opens with its own "Read file … lines"
             // header, so an Input summary row would repeat the same
             // path:range line twice — show it only when no output arrived.
-            const isShell = toolName === "shell";
+            const isShell = toolName === "shell" || toolName === "execute";
             details.appendChild(el("div", { className: "tool-input" + (isShell ? " tool-input-shell" : "") }, [txt(summarizeToolInput(String(toolName), inp))]));
           }
         }
@@ -1656,7 +1658,7 @@ class App {
           for (const entry of metaFilesNorm) filesWrap.appendChild(renderFileDiffBlock(entry));
           tc.appendChild(filesWrap);
         }
-        if (meta && Object.keys(meta).length && toolName !== "read" && !metaFilesNorm.length) {
+        if (meta && Object.keys(meta).length && toolName !== "read" && toolName !== "execute" && !metaFilesNorm.length) {
           details.appendChild(el("div", { className: "tool-input" }, [txt(truncateText(JSON.stringify(meta, null, 2), 2000))]));
         }
         if (details.children.length) {
@@ -1974,7 +1976,7 @@ class App {
     tc.appendChild(nameLine);
     const details = el("div", { className: "tool-details hidden" });
     if (input) {
-      const shellCls = String(name || "tool") === "shell" ? " tool-input-shell" : "";
+      const shellCls = (String(name || "tool") === "shell" || String(name || "tool") === "execute") ? " tool-input-shell" : "";
       details.appendChild(el("div", { className: "tool-input" + shellCls }, [txt(summarizeToolInput(String(name || "tool"), (input || {}) as Record<string, unknown>))]));
     }
     if (details.children.length) {
@@ -2029,6 +2031,8 @@ class App {
       const contentRow = el("div", { className: "tool-result-content tool-output-row" });
       if (name === "read" || name === "edit" || name === "write") {
         contentRow.appendChild(renderNumberedCode(truncateLines(output, 60, 4000), "", name === "read"));
+      } else if (name === "execute") {
+        contentRow.appendChild(txt(truncateLines(prettyJsonOutput(output), 30, 2000)));
       } else {
         contentRow.appendChild(txt(truncateLines(output, 30, 2000)));
       }
