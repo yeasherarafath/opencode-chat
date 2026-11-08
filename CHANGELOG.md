@@ -4,7 +4,6 @@ All notable changes to the OpenCode Chat extension are documented here.
 
 ## [0.3.20] - 2026-11-08
 
-### In plain words
 - The file you have open is now suggested above the message box as soon as you open the chat — before, it only appeared after switching tabs.
 - The open file keeps being suggested while you type in the chat, and panels that aren't files (Output, Settings) are no longer suggested.
 - Redesigned `@` file menu: each file shows its name, a file-type badge and its path inside your project, with the open file listed first and marked "current". Your search text is highlighted.
@@ -14,7 +13,6 @@ All notable changes to the OpenCode Chat extension are documented here.
 
 ## [0.3.19] - 2026-11-08
 
-### In plain words
 - New, simpler chat design. The chat now follows your VS Code theme (light, dark and high contrast), and uses your editor's fonts and colors instead of a fixed dark palette.
 - Cleaner messages: no avatars, assistant replies sit directly on the page, your messages appear in a soft bubble, and tool, task and reasoning cards are quieter.
 - Flatter header, agent bar and message box; the selected agent (build, plan, review) is easier to spot.
@@ -23,13 +21,11 @@ All notable changes to the OpenCode Chat extension are documented here.
 
 ## [0.3.18] - 2026-10-15
 
-### In plain words
 - Chat search (Ctrl+F) now highlights the found words inside messages in yellow, with the current match in orange — before, only the whole message bubble was tinted.
 - Tool cards for `execute` steps show a one-line code summary with pretty-printed output instead of a raw JSON dump.
 
 ## [0.3.17] - 2026-10-15
 
-### In plain words
 - Chat no longer shows empty "thinking" boxes. Some steps used to display a blank reasoning header with nothing inside — those are now hidden.
 - Changed files show a proper red/green difference with line numbers, instead of a raw text dump.
 - The token counter at the bottom now matches the number the CLI shows.
