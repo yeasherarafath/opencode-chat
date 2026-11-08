@@ -115,10 +115,12 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
       this.handleMessage(msg).catch((e) => this.log(`handleMessage error: ${e}`));
     });
 
-    this.activeEditorSub = vscode.window.onDidChangeActiveTextEditor((editor) => {
-      const path = editor?.document.uri.fsPath || "";
-      try { this.view?.webview.postMessage({ type: "active-file", path }); } catch {}
-    });
+    const pushActiveFile = () => this.postActiveFile();
+    this.activeEditorSub = vscode.Disposable.from(
+      vscode.window.onDidChangeActiveTextEditor(pushActiveFile),
+      vscode.window.tabGroups.onDidChangeTabs(pushActiveFile),
+      vscode.window.tabGroups.onDidChangeTabGroups(pushActiveFile),
+    );
     webviewView.onDidChangeVisibility(() => {
       this.log(`onDidChangeVisibility: visible=${webviewView.visible}`);
       if (webviewView.visible) {
@@ -150,14 +152,11 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
         case "ready": {
           this.log("handleMessage: ready -> sendInitialState");
           if (!this.initialized) { this.log("ready: deferring until initialize() completes"); return; }
-          try {
-            const editor = vscode.window.activeTextEditor;
-            if (editor) this.view.webview.postMessage({ type: "active-file", path: editor.document.uri.fsPath });
-          } catch {}
+          this.postActiveFile();
           try { await this.sendInitialState(); } catch (e) { this.log(`sendInitialState error: ${e}`); }
           try {
             const files = await vscode.workspace.findFiles("**/*", "{**/node_modules/**,**/.git/**}", 200);
-            this.view.webview.postMessage({ type: "files", files: files.map(f => f.fsPath) });
+            this.view.webview.postMessage({ type: "files", files: files.map(f => f.fsPath), roots: this.workspaceRoots() });
           } catch (e) { this.log(`pre-fetch files error: ${e}`); }
           if (this.pendingInputText) {
             try { this.view.webview.postMessage({ type: "set-input", text: this.pendingInputText }); } catch {}
@@ -405,7 +404,7 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
             const files = await vscode.workspace.findFiles(pattern, `{${exclude}}`, maxResults);
             const paths = files.map(f => f.fsPath);
             this.log(`get-files: pattern=${pattern} query="${rawQuery}" → ${paths.length} files`);
-            this.view.webview.postMessage({ type: "files", files: paths, query: rawQuery });
+            this.view.webview.postMessage({ type: "files", files: paths, query: rawQuery, roots: this.workspaceRoots() });
           } catch (e) {
             this.log(`get-files error: ${e}`);
             this.view.webview.postMessage({ type: "files", files: [] });
@@ -500,6 +499,33 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /**
+   * Path of the file the user is looking at, or "" when none.
+   * Falls back to the active tab so the file stays known while focus is in
+   * the chat view, and ignores non-file editors (output panel, settings...).
+   */
+  private activeFilePath(): string {
+    const fromUri = (uri: vscode.Uri | undefined) =>
+      uri && (uri.scheme === "file" || uri.scheme === "vscode-remote") ? uri.fsPath : "";
+    const editorPath = fromUri(vscode.window.activeTextEditor?.document.uri);
+    if (editorPath) return editorPath;
+    const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    if (input instanceof vscode.TabInputText) return fromUri(input.uri);
+    if (input instanceof vscode.TabInputTextDiff) return fromUri(input.modified);
+    if (input instanceof vscode.TabInputCustom) return fromUri(input.uri);
+    return "";
+  }
+
+  private postActiveFile(): void {
+    try {
+      this.view?.webview.postMessage({ type: "active-file", path: this.activeFilePath(), roots: this.workspaceRoots() });
+    } catch {}
+  }
+
+  private workspaceRoots(): string[] {
+    return (vscode.workspace.workspaceFolders || []).map(f => f.uri.fsPath);
+  }
+
   private async sendInitialState(skipSessionReload = false): Promise<void> {
     if (!this.view) { this.log("sendInitialState: no view, skip"); return; }
     const cfg = vscode.workspace.getConfiguration("opencode-chat");
@@ -507,6 +533,8 @@ export class OpenCodeViewProvider implements vscode.WebviewViewProvider {
     const defaultAgent = cfg.get<string>("defaultAgent") || "";
     this.log(`sendInitialState: posting state isInstalled=${this.isInstalled} version=${this.opencodeVersion}`);
     this.view.webview.postMessage({ type: "state", isInstalled: this.isInstalled, opencodeVersion: this.opencodeVersion, extensionVersion: this.extensionVersion, defaultModel, defaultAgent });
+
+    this.postActiveFile();
 
     // Send pendingInputText AFTER state so render() doesn't clear the input
     if (this.pendingInputText) {

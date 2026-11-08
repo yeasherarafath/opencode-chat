@@ -557,6 +557,11 @@ class App {
   private atFetchTimer: ReturnType<typeof setTimeout> | null = null;
   private atLastQuery = "";
   private atResultsByQuery: Map<string, string[]> = new Map();
+  private atSel = 0;
+  private atShown: string[] = [];
+  private workspaceRoots: string[] = [];
+  /** Mention text inserted in the input (relative path) -> absolute path. */
+  private mentionPaths: Map<string, string> = new Map();
 
   constructor() {
     this.root = document.getElementById("root")!;
@@ -627,6 +632,8 @@ class App {
     this.renderSessionList();
     this.renderModels();
     this.renderAgents();
+    // The composer was rebuilt: restore attached files and the open-file chip.
+    this.renderFileChips();
   }
 
   private createHeader(): HTMLElement {
@@ -811,7 +818,7 @@ class App {
 
     this.slashMenuEl = el("div", { className: "slash-menu absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-64 overflow-y-auto min-w-[220px] shadow-lg z-100 mb-1 hidden" });
     container.appendChild(this.slashMenuEl);
-    this.atMenuEl = el("div", { className: "at-menu absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-72 overflow-y-auto min-w-[260px] shadow-lg z-100 hidden" });
+    this.atMenuEl = el("div", { className: "at-menu absolute bottom-full border border-outline-variant rounded-md max-h-72 overflow-y-auto z-100 hidden" });
     container.appendChild(this.atMenuEl);
 
     const inputToolbar = el("div", { className: "flex items-center gap-1 px-2 pt-1.5" });
@@ -921,6 +928,20 @@ class App {
       this.handleAtInput();
     };
     this.inputTextarea.onkeydown = (e) => {
+      if (!this.atMenuEl.classList.contains("hidden") && this.atShown.length) {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          const n = this.atShown.length;
+          this.atSel = (this.atSel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+          this.highlightAtSelection();
+          return;
+        }
+        if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+          e.preventDefault();
+          this.insertMention(this.atShown[this.atSel] || this.atShown[0]);
+          return;
+        }
+      }
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this.send(); }
       if (e.key === "Escape") { this.hideSlashMenu(); this.hideAtMenu(); }
       const inSlash = !this.slashMenuEl.classList.contains("hidden");
@@ -1028,6 +1049,7 @@ class App {
         return;
       }
       const query = after.toLowerCase();
+      if (query !== this.atLastQuery) this.atSel = 0;
       this.atLastQuery = query;
       // schedule a server-side find for this query (debounced) — covers the
       // entire workspace recursively instead of relying on a stale snapshot.
@@ -1060,8 +1082,40 @@ class App {
     this.atMenuEl.classList.add("hidden");
   }
 
+  /** Workspace-relative path with forward slashes (falls back to the input). */
+  private relPath(p: string): string {
+    const norm = p.replace(/\\/g, "/");
+    for (const root of this.workspaceRoots) {
+      const r = root.replace(/\\/g, "/").replace(/\/+$/, "");
+      if (norm.toLowerCase().startsWith(r.toLowerCase() + "/")) return norm.slice(r.length + 1);
+    }
+    return norm;
+  }
+
+  private insertMention(abs: string): void {
+    const rel = this.relPath(abs);
+    this.mentionPaths.set(rel, abs);
+    const ta = this.inputTextarea;
+    const before = ta.value.slice(0, ta.selectionStart);
+    const after = ta.value.slice(ta.selectionStart);
+    const atIdx = before.lastIndexOf("@");
+    const head = before.slice(0, atIdx) + "@" + rel + " ";
+    ta.value = head + after.replace(/^\S*/, "").replace(/^ /, "");
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = head.length;
+    this.hideAtMenu();
+  }
+
+  private highlightAtSelection(): void {
+    const rows = this.atMenuEl.querySelectorAll<HTMLElement>(".at-item[data-idx]");
+    rows.forEach((r) => r.classList.toggle("selected", Number(r.dataset.idx) === this.atSel));
+    const cur = this.atMenuEl.querySelector<HTMLElement>(".at-item.selected");
+    cur?.scrollIntoView({ block: "nearest" });
+  }
+
   private renderAtMenu(query: string): void {
     this.atMenuEl.innerHTML = "";
+    this.atShown = [];
     const files = this.state.workspaceFiles || [];
     const norm = (s: string) => s.toLowerCase().replace(/\\/g, "/");
     const q = norm(query.trim());
@@ -1071,7 +1125,7 @@ class App {
     } else {
       const scored: { f: string; score: number }[] = [];
       for (const f of files) {
-        const nf = norm(f);
+        const nf = norm(this.relPath(f));
         const parts = nf.split("/");
         const name = parts[parts.length - 1] || nf;
         let score = -1;
@@ -1086,74 +1140,57 @@ class App {
       matched = scored.map((s) => s.f);
     }
 
+    // The open editor file is the most likely pick: list it first.
+    const active = this.activeFile;
+    if (active) {
+      const rel = norm(this.relPath(active));
+      const hit = !q || rel.includes(q);
+      matched = matched.filter((f) => norm(f) !== norm(active));
+      if (hit) matched.unshift(active);
+    }
+
+    const browse = el("div", { className: "at-browse" });
+    browse.innerHTML = Paperclip + "<span>Browse for file…</span>";
+    browse.onclick = () => { vscode.postMessage({ type: "show-file-picker" }); this.hideAtMenu(); };
+
     if (!matched.length) {
-      if (!files.length) {
-        const item = el("div", { className: "at-item" });
-        item.innerHTML = `<span class="at-icon file">📄</span><div class="at-body"><div class="at-name">Searching workspace...</div></div>`;
-        this.atMenuEl.appendChild(item);
-      } else {
-        const item = el("div", { className: "at-item", style: "cursor:default;opacity:.6" });
-        item.innerHTML = `<span class="at-icon file">📄</span><div class="at-body"><div class="at-name">No files match "${query}"</div></div>`;
-        this.atMenuEl.appendChild(item);
-      }
-      const browse = el("div", { className: "at-browse" });
-      browse.innerHTML = `<span>📂</span> Browse for file...`;
-      browse.onclick = () => { vscode.postMessage({ type: "show-file-picker" }); this.hideAtMenu(); };
+      const msg = !files.length ? "Searching workspace…" : `No files match “${esc(query)}”`;
+      this.atMenuEl.appendChild(el("div", { className: "at-empty" }, [txt(msg)]));
       this.atMenuEl.appendChild(browse);
       return;
     }
 
     const limit = query ? 50 : 30;
-    let lastDir = "";
-    for (const f of matched.slice(0, limit)) {
-      const parts = f.split(/[\\/]/);
-      const name = parts.pop() || f;
-      const dir = parts.join("/") || ".";
-
-      // directory header (only when browsing, not when searching)
-      if (dir !== lastDir && !query) {
-        lastDir = dir;
-        const hdr = el("div", { className: "at-item", style: "cursor:default;opacity:.5;font-size:10px;padding:4px 10px;text-transform:uppercase;letter-spacing:.04em" });
-        hdr.innerHTML = `<span class="at-icon folder">📁</span><span>${dir === "." ? "root" : dir}</span>`;
-        this.atMenuEl.appendChild(hdr);
-      }
-
-      const item = el("div", { className: "at-item" });
-      const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
-      const iconMap: Record<string, string> = {
-        ts: "🟦", tsx: "⚛️", js: "🟨", jsx: "⚛️", json: "📋", css: "🎨", html: "🌐",
-        md: "📝", svg: "🖼️", png: "🖼️", jpg: "🖼️", ico: "🖼️",
-        py: "🐍", rs: "🦀", go: "🔵", java: "☕", rb: "💎", php: "🐘",
-        c: "⚙️", cpp: "⚙️", h: "📐", sh: "💲", bat: "💲", ps1: "💲",
-        yml: "📋", yaml: "📋", toml: "📋", env: "🔒", gitignore: "🙈",
-        lock: "🔒", vue: "💚", svelte: "🧡", astro: "🧡",
+    this.atShown = matched.slice(0, limit);
+    if (this.atSel >= this.atShown.length) this.atSel = 0;
+    this.atShown.forEach((f, idx) => {
+      const rel = this.relPath(f);
+      const parts = rel.split("/");
+      const name = parts.pop() || rel;
+      const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase().slice(0, 5) : "";
+      const isActive = !!active && norm(f) === norm(active);
+      const mark = (s: string) => {
+        const i = q ? s.toLowerCase().indexOf(q) : -1;
+        if (i < 0) return esc(s);
+        return esc(s.slice(0, i)) + "<mark>" + esc(s.slice(i, i + q.length)) + "</mark>" + esc(s.slice(i + q.length));
       };
-      const icon = iconMap[ext] || "📄";
-      const shortDir = dir === "." ? "" : dir.length > 60 ? "…" + dir.slice(-58) : dir;
-
-      item.innerHTML = `<span class="at-icon file">${icon}</span><div class="at-body"><div class="at-name">${name}</div><div class="at-dir">${shortDir}</div></div>`;
-      item.onclick = () => {
-        const before = this.inputTextarea.value.slice(0, this.inputTextarea.selectionStart);
-        const after = this.inputTextarea.value.slice(this.inputTextarea.selectionStart);
-        const atIdx = before.lastIndexOf("@");
-        this.inputTextarea.value = before.slice(0, atIdx) + "@" + f + " " + after;
-        this.inputTextarea.focus();
-        const pos = before.slice(0, atIdx).length + f.length + 2;
-        this.inputTextarea.selectionStart = this.inputTextarea.selectionEnd = pos;
-        this.hideAtMenu();
-      };
+      const item = el("div", { className: "at-item" + (idx === this.atSel ? " selected" : ""), title: rel });
+      item.dataset.idx = String(idx);
+      item.innerHTML =
+        `<span class="at-icon">${File}</span>` +
+        `<div class="at-body"><div class="at-line"><span class="at-name">${mark(name)}</span>` +
+        (ext ? `<span class="at-ext">${esc(ext)}</span>` : "") + `</div>` +
+        `<div class="at-dir">${mark(rel)}</div></div>` +
+        (isActive ? `<span class="at-tag">current</span>` : "");
+      item.onmouseenter = () => { this.atSel = idx; this.highlightAtSelection(); };
+      item.onmousedown = (ev) => ev.preventDefault(); // keep textarea focus
+      item.onclick = () => this.insertMention(f);
       this.atMenuEl.appendChild(item);
-    }
+    });
 
     if (matched.length > limit) {
-      const more = el("div", { className: "at-item", style: "cursor:default;opacity:.55;font-size:11px" });
-      more.innerHTML = `<span class="at-icon file">⋯</span><div class="at-body"><div class="at-name">${matched.length - limit} more — keep typing to narrow</div></div>`;
-      this.atMenuEl.appendChild(more);
+      this.atMenuEl.appendChild(el("div", { className: "at-empty" }, [txt(`${matched.length - limit} more — keep typing to narrow`)]));
     }
-
-    const browse = el("div", { className: "at-browse" });
-    browse.innerHTML = `<span>📂</span> Browse for file...`;
-    browse.onclick = () => { vscode.postMessage({ type: "show-file-picker" }); this.hideAtMenu(); };
     this.atMenuEl.appendChild(browse);
   }
 
@@ -2428,7 +2465,8 @@ class App {
 
     promptText = promptText.replace(/(^|\s)@([\w.\-\\\/:]+)/g, (_match, before, name) => {
       const normalized = name.replace(/\//g, "\\");
-      const found = this.state.workspaceFiles.find(f => f.endsWith(normalized) || f.endsWith(name));
+      const found = this.mentionPaths.get(name)
+        || this.state.workspaceFiles.find(f => f.endsWith(normalized) || f.endsWith(name));
       if (found) {
         fileRefs.push(found);
         return before; // remove from prompt — content attached separately
@@ -2759,6 +2797,7 @@ class App {
         }
         case "active-file": {
           const fp = (msg.path as string) || "";
+          if (Array.isArray(msg.roots)) this.workspaceRoots = msg.roots as string[];
           if (fp !== this.activeFile) {
             this.activeFile = fp;
             this.renderFileChips();
@@ -2766,6 +2805,7 @@ class App {
           break;
         }
         case "files": {
+          if (Array.isArray(msg.roots)) this.workspaceRoots = msg.roots as string[];
           const incoming = (msg.files as string[]) || [];
           const incomingQuery = ((msg.query as string) || "").toLowerCase();
           this.atResultsByQuery.set(incomingQuery, incoming);
@@ -2793,8 +2833,10 @@ class App {
           break;
         }
         case "file-picked": {
-          const fp = msg.path as string;
-          if (fp) {
+          const abs = msg.path as string;
+          if (abs) {
+            const fp = this.relPath(abs);
+            this.mentionPaths.set(fp, abs);
             const cursor = this.inputTextarea.selectionStart;
             const before = this.inputTextarea.value.slice(0, cursor);
             const after = this.inputTextarea.value.slice(cursor);
@@ -3095,7 +3137,10 @@ class App {
           (c.attached ? " bg-primary-container/20 text-primary border-primary-container" : " bg-surface-container-low text-on-surface-variant border-outline-variant hover:border-primary hover:text-primary"),
         title: c.path,
       });
-      chip.innerHTML = (c.attached ? X : Plus) + " " + name;
+      chip.innerHTML = c.attached
+        ? File + " " + esc(name) + " " + X
+        : Plus + " " + esc(name) + ' <span class="opacity-60">current file</span>';
+      chip.title = c.attached ? c.path + " — click to remove" : c.path + " — click to attach";
       chip.onclick = () => this.toggleFileAttachment(c.path);
       this.fileChipsEl.appendChild(chip);
     }

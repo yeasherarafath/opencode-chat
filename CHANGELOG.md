@@ -2,6 +2,16 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.3.20] - 2026-11-08
+
+### In plain words
+- The file you have open is now suggested above the message box as soon as you open the chat — before, it only appeared after switching tabs.
+- The open file keeps being suggested while you type in the chat, and panels that aren't files (Output, Settings) are no longer suggested.
+- Redesigned `@` file menu: each file shows its name, a file-type badge and its path inside your project, with the open file listed first and marked "current". Your search text is highlighted.
+- Use the arrow keys to move through the `@` menu and Enter or Tab to pick a file (Enter used to send the message instead).
+- Mentions are inserted as short project paths (`@src/app.ts`) instead of full disk paths.
+- Searching in the `@` menu no longer matches every file because of folder names above your project.
+
 ## [0.3.19] - 2026-11-08
 
 ### In plain words
