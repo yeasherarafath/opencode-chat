@@ -2,6 +2,15 @@
 
 All notable changes to the OpenCode Chat extension are documented here.
 
+## [0.3.19] - 2026-11-08
+
+### In plain words
+- New, simpler chat design. The chat now follows your VS Code theme (light, dark and high contrast), and uses your editor's fonts and colors instead of a fixed dark palette.
+- Cleaner messages: no avatars, assistant replies sit directly on the page, your messages appear in a soft bubble, and tool, task and reasoning cards are quieter.
+- Flatter header, agent bar and message box; the selected agent (build, plan, review) is easier to spot.
+- Short messages such as "ping" no longer wrap a letter onto the next line.
+- The `/` command menu and the status dot (ready / busy / error) now show their intended styling.
+
 ## [0.3.18] - 2026-10-15
 
 ### In plain words

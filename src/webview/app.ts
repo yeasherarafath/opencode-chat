@@ -582,7 +582,7 @@ class App {
     this.root.appendChild(el("div", { className: "flex flex-col items-center justify-center h-screen px-8 text-center gap-5" }, [
       el("h2", { className: "text-headline" }, [txt("OpenCode CLI Required")]),
       el("p", { className: "text-body text-on-surface-variant max-w-[280px]" }, [txt("Install the opencode CLI to use AI-powered coding assistance.")]),
-      el("button", { className: "bg-primary-container text-on-primary border-none px-6 py-2.5 cursor-pointer text-sm font-medium rounded-md font-ui transition-colors duration-150 hover:bg-[#3d7ae8]", id: "install-btn" }, [txt("Install OpenCode")]),
+      el("button", { className: "bg-primary-container text-on-primary border-none px-6 py-2.5 cursor-pointer text-sm font-medium rounded-md font-ui transition-colors duration-150 hover:opacity-90", id: "install-btn" }, [txt("Install OpenCode")]),
     ]));
     document.getElementById("install-btn")!.onclick = () => vscode.postMessage({ type: "install" });
   }
@@ -630,26 +630,26 @@ class App {
   }
 
   private createHeader(): HTMLElement {
-    const hdr = el("header", { className: "flex items-center justify-between px-3 h-11 flex-shrink-0 bg-surface-container-low border-b border-outline-variant" });
+    const hdr = el("header", { className: "flex items-center justify-between px-3 h-10 flex-shrink-0 bg-surface-dim border-b border-outline-variant" });
     const left = el("div", { className: "flex items-center gap-2" });
-    left.appendChild(el("span", { className: "text-headline font-bold text-on-surface" }, [txt("OpenCode")]));
+    left.appendChild(el("span", { className: "text-body font-semibold text-on-surface" }, [txt("OpenCode")]));
     left.appendChild(el("span", { className: "text-label text-on-surface-variant/60 self-end mb-px" }, [txt("v" + (this.state.opencodeVersion || "?"))]));
     hdr.appendChild(left);
 
     const right = el("div", { className: "flex items-center gap-1" });
-    const histBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "History" });
+    const histBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-hover", title: "History" });
     histBtn.innerHTML = "<span class='icon'>" + Clock + "</span>";
     histBtn.onclick = () => { this.state.showSessions = !this.state.showSessions; this.sessionsPanel.classList.toggle("hidden"); };
     right.appendChild(histBtn);
-    this.ioBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Import session" });
+    this.ioBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-hover", title: "Import session" });
     this.ioBtn.onclick = () => this.handleIoBtn();
     this.updateIoBtn();
     right.appendChild(this.ioBtn);
-    const globeBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Open OpenCode web GUI" });
+    const globeBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-hover", title: "Open OpenCode web GUI" });
     globeBtn.innerHTML = "<span class='icon'>" + Globe + "</span>";
     globeBtn.onclick = () => { vscode.postMessage({ type: "open-web-gui" }); };
     right.appendChild(globeBtn);
-    const providersBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Providers" });
+    const providersBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-hover", title: "Providers" });
     providersBtn.innerHTML = Settings;
     providersBtn.onclick = () => {
       vscode.postMessage({ type: "get-providers" });
@@ -681,7 +681,7 @@ class App {
   }
 
   private createAgentBar(): HTMLElement {
-    const bar = el("div", { className: "flex flex-col gap-1.5 p-2 bg-surface-container border-b border-outline-variant shrink-0" });
+    const bar = el("div", { className: "flex flex-col gap-1.5 px-3 py-2 bg-surface-dim border-b border-outline-variant shrink-0" });
     const top = el("div", { className: "flex items-center justify-between px-0.5" });
     const label = el("span", { className: "text-label text-on-surface-variant flex items-center gap-1 uppercase tracking-wide" });
     label.innerHTML = "<span class='icon'>" + Bot + "</span> Agent Mode";
@@ -690,17 +690,17 @@ class App {
     newBtn.innerHTML = "<span class='icon'>" + Plus + "</span> New Chat";
     newBtn.onclick = () => this.newSession();
     top.appendChild(newBtn);
-    const refreshBtn = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:text-primary hover:bg-white/4", title: "Refresh session" });
+    const refreshBtn = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:text-primary hover:bg-hover", title: "Refresh session" });
     refreshBtn.innerHTML = "<span class='icon'>" + RefreshCw + "</span>";
     refreshBtn.onclick = () => this.refreshSession();
     top.appendChild(refreshBtn);
     bar.appendChild(top);
 
-    const seg = el("div", { className: "flex gap-1 p-0.5 rounded-lg bg-surface-container-lowest border border-outline-variant overflow-x-auto", "data-part": "agent-segmented" });
+    const seg = el("div", { className: "flex gap-0.5 p-0.5 rounded-md bg-surface-container border border-outline-variant overflow-x-auto", "data-part": "agent-segmented" });
     const ags = this.state.agents.length ? this.state.agents : ["build", "plan", "review"];
     if (!this.state.selectedAgent && ags.includes("plan")) this.state.selectedAgent = "plan";
     for (const a of ags) {
-      const pill = el("button", { className: "shrink-0 flex items-center justify-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2.5 py-1 rounded-md cursor-pointer transition-all duration-150 whitespace-nowrap hover:text-primary" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
+      const pill = el("button", { className: "shrink-0 flex items-center justify-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2.5 py-1 rounded cursor-pointer transition-all duration-150 whitespace-nowrap hover:text-on-surface" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
       pill.textContent = a.charAt(0).toUpperCase() + a.slice(1);
       pill.onclick = () => {
         this.state.selectedAgent = a;
@@ -749,10 +749,10 @@ class App {
       const hdr = el("div", { className: "text-label text-outline uppercase tracking-wider px-3.5 pb-1 pt-1.5 text-xs" }, [txt(g.label)]);
       section.appendChild(hdr);
       for (const s of g.items) {
-        const item = el("div", { className: "flex items-start gap-2.5 px-3 py-2 cursor-pointer text-xs font-ui rounded-sm mx-1.5 my-px relative hover:bg-white/3" + (s.id === this.state.currentSessionId ? " active" : "") });
+        const item = el("div", { className: "flex items-start gap-2.5 px-3 py-2 cursor-pointer text-xs font-ui rounded-sm mx-1.5 my-px relative hover:bg-hover session-item" + (s.id === this.state.currentSessionId ? " active" : "") });
         item.onclick = () => this.switchSession(s.id);
 
-        const icon = el("div", { className: "shrink-0 w-8 h-8 rounded-md bg-primary/12 flex items-center justify-center text-sm text-primary" });
+        const icon = el("div", { className: "shrink-0 w-6 h-6 rounded bg-surface-container flex items-center justify-center text-xs text-on-surface-variant" });
         icon.innerHTML = MessageSquare;
         item.appendChild(icon);
 
@@ -806,16 +806,16 @@ class App {
   }
 
   private createInputArea(): HTMLElement {
-    const container = el("div", { className: "relative z-30 shrink-0 px-3 pb-2.5 pt-2 backdrop-blur-sm bg-surface-dim/85 border-t border-outline-variant" });
-    const inner = el("div", { className: "max-w-2xl mx-auto bg-surface-container-highest border border-outline-variant rounded-xl transition-all duration-150 focus-within:border-primary-container focus-within:shadow-[0_0_0_1px_rgba(77,142,255,0.2)]" });
+    const container = el("div", { className: "relative z-30 shrink-0 px-3 pb-3 pt-2 bg-surface-dim" });
+    const inner = el("div", { className: "max-w-2xl mx-auto bg-surface-container-lowest border border-outline-variant rounded-lg transition-all duration-150 focus-within:border-primary-container focus-within:shadow-[0_0_0_1px_var(--primary-container)]" });
 
-    this.slashMenuEl = el("div", { className: "absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-64 overflow-y-auto min-w-[220px] shadow-lg z-100 mb-1 hidden" });
+    this.slashMenuEl = el("div", { className: "slash-menu absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-64 overflow-y-auto min-w-[220px] shadow-lg z-100 mb-1 hidden" });
     container.appendChild(this.slashMenuEl);
     this.atMenuEl = el("div", { className: "at-menu absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-72 overflow-y-auto min-w-[260px] shadow-lg z-100 hidden" });
     container.appendChild(this.atMenuEl);
 
-    const inputToolbar = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant" });
-    const modelPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Selected model", "data-part": "model-pill" });
+    const inputToolbar = el("div", { className: "flex items-center gap-1 px-2 pt-1.5" });
+    const modelPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-transparent border border-transparent px-2 py-0.5 rounded cursor-pointer transition-all duration-150 hover:bg-hover hover:text-on-surface", title: "Selected model", "data-part": "model-pill" });
     this.modelPill = modelPill;
     modelPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedModel || "Model") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
     const modelPopup = el("div", { className: "absolute bottom-full left-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[220px] z-100 shadow-lg" });
@@ -854,7 +854,7 @@ class App {
         groups[prov].push(m);
       }
       for (const [prov, items] of Object.entries(groups)) {
-        const gh = el("div", { className: "px-2 py-1 text-xs font-semibold uppercase text-on-surface-variant/70 tracking-wide bg-black/10" }, [txt(prov)]);
+        const gh = el("div", { className: "px-2 py-1 text-xs font-semibold uppercase text-on-surface-variant/70 tracking-wide bg-surface-container" }, [txt(prov)]);
         modelList.appendChild(gh);
         for (const m of items) {
           const opt = el("div", { className: "model-popup-opt px-3 py-1 text-xs cursor-pointer font-ui transition-colors duration-100 hover:bg-primary/8" + (m === this.state.selectedModel ? " on" : "") }, [txt(m)]);
@@ -883,7 +883,7 @@ class App {
     inputToolbar.appendChild(modelPill);
     inputToolbar.appendChild(modelPopup);
 
-    const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Variant", "data-part": "variant-pill" });
+    const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-transparent border border-transparent px-2 py-0.5 rounded cursor-pointer transition-all duration-150 hover:bg-hover hover:text-on-surface", title: "Variant", "data-part": "variant-pill" });
     this.variantPill = variantPill;
     variantPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedVariant || "Balanced") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
     this.variantPopup = el("div", { className: "absolute bottom-full right-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[120px] z-100 shadow-lg" });
@@ -908,7 +908,7 @@ class App {
 
     inner.appendChild(inputToolbar);
 
-    this.fileChipsEl = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant hidden" });
+    this.fileChipsEl = el("div", { className: "flex items-center gap-1.5 px-3 pt-1.5 hidden" });
     inner.appendChild(this.fileChipsEl);
 
     const inputMain = el("div", { className: "flex items-end" });
@@ -941,9 +941,9 @@ class App {
     inputMain.appendChild(this.inputTextarea);
     inner.appendChild(inputMain);
 
-    const footer = el("div", { className: "flex items-center justify-between px-2.5 py-1.5 border-t border-outline-variant" });
+    const footer = el("div", { className: "flex items-center justify-between px-2 pb-1.5" });
     const left = el("div", { className: "flex items-center gap-0.5" });
-    const attachBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-1 rounded-sm transition-all duration-150 flex items-center justify-center hover:text-primary hover:bg-white/4", title: "Attach file" });
+    const attachBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-1 rounded-sm transition-all duration-150 flex items-center justify-center hover:text-primary hover:bg-hover", title: "Attach file" });
     attachBtn.innerHTML = "<span class='icon'>" + Paperclip + "</span>";
     attachBtn.onclick = () => vscode.postMessage({ type: "show-file-picker" });
     left.appendChild(attachBtn);
@@ -951,12 +951,12 @@ class App {
 
     const right = el("div", { className: "flex gap-1 items-center" });
     const actions = el("div", { className: "flex gap-1 items-center" });
-    this.abortBtn = el("button", { className: "w-8 h-8 rounded-full bg-transparent text-error border border-error cursor-pointer flex items-center justify-center transition-all duration-150 text-sm hover:bg-error/10", style: "display:none", title: "Abort" });
+    this.abortBtn = el("button", { className: "w-7 h-7 rounded-md bg-transparent text-error border border-error cursor-pointer flex items-center justify-center transition-all duration-150 text-sm hover:bg-error/10", style: "display:none", title: "Abort" });
     this.abortBtn.innerHTML = Square;
     this.abortBtn.onclick = () => vscode.postMessage({ type: "abort" });
     actions.appendChild(this.abortBtn);
 
-    this.sendBtn = el("button", { className: "w-8 h-8 rounded-full bg-primary-container text-on-primary border-none cursor-pointer flex items-center justify-center transition-all duration-150 hover:scale-105 active:scale-95", title: "Send" });
+    this.sendBtn = el("button", { className: "w-7 h-7 rounded-md bg-primary-container text-on-primary border-none cursor-pointer flex items-center justify-center transition-all duration-150 hover:opacity-90", title: "Send" });
     this.sendBtn.innerHTML = "<span class='icon'>" + ArrowUp + "</span>";
     this.sendBtn.onclick = () => this.send();
     actions.appendChild(this.sendBtn);
@@ -1158,7 +1158,7 @@ class App {
   }
 
   private createStatusBar(): HTMLElement {
-    const bar = el("div", { className: "flex items-center gap-1.5 px-3 py-0.5 text-label text-on-surface-variant border-t border-outline-variant shrink-0 overflow-hidden" });
+    const bar = el("div", { className: "status-bar flex items-center gap-1.5 px-3 py-1 text-label text-on-surface-variant border-t border-outline-variant shrink-0 overflow-hidden" });
 
     this.infoBtn = el("button", { className: "bg-transparent border-none text-on-surface-variant cursor-pointer text-sm p-0 leading-none transition-colors duration-150 hover:text-on-surface shrink-0", title: "Show session state" }, [txt("ⓘ")]);
     this.infoBtn.onclick = () => this.showStateModal();
@@ -1266,8 +1266,8 @@ class App {
         const hdr = el("div", { className: "diff-header" });
         hdr.appendChild(el("span", { className: "diff-file" }, [txt(d.file)]));
         const stats = el("span", { className: "diff-stats" });
-        const add = el("span", { style: "color:#22c55e" }, [txt("+" + d.additions)]);
-        const del = el("span", { style: "color:#ef4444;margin-left:4px" }, [txt("-" + d.deletions)]);
+        const add = el("span", { style: "color:var(--diff-add)" }, [txt("+" + d.additions)]);
+        const del = el("span", { style: "color:var(--diff-del);margin-left:4px" }, [txt("-" + d.deletions)]);
         stats.append(add, del);
         hdr.appendChild(stats);
         section.appendChild(hdr);
@@ -1381,7 +1381,7 @@ class App {
       modal.appendChild(row);
     }
 
-    const closeBtn = el("button", { className: "mt-4 w-full bg-primary text-on-primary border-none py-2.5 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85 shadow-[0_4px_12px_rgba(173,198,255,0.15)]" }, [txt("Close")]);
+    const closeBtn = el("button", { className: "mt-4 w-full bg-primary-container text-on-primary border-none py-2 text-label font-semibold rounded-md cursor-pointer font-ui transition-all duration-150 hover:bg-primary-container" }, [txt("Close")]);
     closeBtn.onclick = () => this.overlayEl.classList.add("hidden");
     modal.appendChild(closeBtn);
     this.overlayEl.appendChild(modal);
@@ -1423,14 +1423,14 @@ class App {
 
     const footer = el("div", { className: "flex items-center justify-end gap-2 shrink-0" });
     if (mode === "export") {
-      const saveBtn = el("button", { className: "bg-primary text-on-primary border-none py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85" }, [txt("Save")]);
+      const saveBtn = el("button", { className: "bg-primary text-on-primary border-none py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary-container" }, [txt("Save")]);
       saveBtn.onclick = () => { vscode.postMessage({ type: "save-json", json, defaultName: defaultName || "session.json" }); };
       footer.appendChild(saveBtn);
-      const copyBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Copy")]);
+      const copyBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-hover" }, [txt("Copy")]);
       copyBtn.onclick = () => { navigator.clipboard.writeText(json).catch(() => {}); };
       footer.appendChild(copyBtn);
     }
-    const closeBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Close")]);
+    const closeBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-hover" }, [txt("Close")]);
     closeBtn.onclick = () => this.overlayEl.classList.add("hidden");
     footer.appendChild(closeBtn);
     modal.appendChild(footer);
@@ -3062,7 +3062,7 @@ class App {
     }) : ["build", "plan", "review"];
     if (!this.state.selectedAgent && ags.includes("plan")) this.state.selectedAgent = "plan";
     for (const a of ags) {
-      const pill = el("button", { className: "shrink-0 flex items-center justify-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2.5 py-1 rounded-md cursor-pointer transition-all duration-150 whitespace-nowrap hover:text-primary" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
+      const pill = el("button", { className: "shrink-0 flex items-center justify-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2.5 py-1 rounded cursor-pointer transition-all duration-150 whitespace-nowrap hover:text-on-surface" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
       pill.textContent = a.charAt(0).toUpperCase() + a.slice(1);
       pill.onclick = () => {
         this.state.selectedAgent = a;
