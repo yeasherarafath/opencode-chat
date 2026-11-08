@@ -15,3 +15,7 @@ release.js
 .vscodeignore
 logs/**
 release/**
+dist-test/**
+tests/**
+tsconfig.test.json
+.github/**
