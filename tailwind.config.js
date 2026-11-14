@@ -1,4 +1,13 @@
 /** @type {import('tailwindcss').Config} */
+
+// Colors resolve to CSS variables defined in src/webview/styles.css, which in
+// turn follow the active VS Code theme. Opacity modifiers (e.g. bg-primary/10)
+// are supported through color-mix().
+const token = (name) => ({ opacityValue }) =>
+  opacityValue === undefined || opacityValue === "1"
+    ? `var(--${name})`
+    : `color-mix(in srgb, var(--${name}) calc(${opacityValue} * 100%), transparent)`;
+
 module.exports = {
   content: ["./src/**/*.ts", "./src/**/*.html"],
   darkMode: "class",
@@ -6,63 +15,65 @@ module.exports = {
     extend: {
       colors: {
         surface: {
-          dim: "#131313",
-          bright: "#393939",
-          "container-lowest": "#0e0e0e",
-          "container-low": "#1b1b1c",
-          container: "#202020",
-          "container-high": "#2a2a2a",
-          "container-highest": "#353535",
+          dim: token("surface-dim"),
+          bright: token("surface-bright"),
+          "container-lowest": token("surface-container-lowest"),
+          "container-low": token("surface-container-low"),
+          container: token("surface-container"),
+          "container-high": token("surface-container-high"),
+          "container-highest": token("surface-container-highest"),
         },
         primary: {
-          DEFAULT: "#adc6ff",
-          container: "#4d8eff",
-          "fixed-dim": "#adc6ff",
+          DEFAULT: token("primary"),
+          container: token("primary-container"),
+          "fixed-dim": token("primary-fixed-dim"),
         },
         secondary: {
-          DEFAULT: "#c0c1ff",
-          container: "#3131c0",
+          DEFAULT: token("secondary"),
+          container: token("secondary-container"),
         },
         tertiary: {
-          DEFAULT: "#ffb786",
-          container: "#df7412",
+          DEFAULT: token("tertiary"),
+          container: token("tertiary-container"),
         },
         outline: {
-          DEFAULT: "#8c909f",
-          variant: "#424754",
+          DEFAULT: token("outline"),
+          variant: token("outline-variant"),
         },
         error: {
-          DEFAULT: "#ffb4ab",
-          container: "#93000a",
+          DEFAULT: token("error"),
+          container: token("error-container"),
         },
         "on-surface": {
-          DEFAULT: "#e5e2e1",
-          variant: "#c2c6d6",
+          DEFAULT: token("on-surface"),
+          variant: token("on-surface-variant"),
         },
-        "on-primary": "#002e6a",
-        "on-secondary": "#1000a9",
+        "on-primary": token("on-primary"),
+        "on-secondary": token("on-secondary"),
+        hover: token("hover"),
       },
       fontFamily: {
-        ui: ["Inter", "system-ui", "-apple-system", "sans-serif"],
-        code: ["JetBrains Mono", "var(--vscode-editor-font-family)", "monospace"],
+        ui: ["var(--font-ui)"],
+        code: ["var(--font-code)"],
+        mono: ["var(--font-code)"],
       },
       fontSize: {
         "label": ["11px", "16px"],
         "body": ["13px", "20px"],
         "body-sm": ["12px", "18px"],
-        "headline": ["16px", "24px"],
+        "headline": ["14px", "22px"],
       },
       fontWeight: {
         label: "500",
         "headline": "600",
       },
       borderRadius: {
-        sm: "2px",
+        sm: "3px",
         DEFAULT: "4px",
         md: "6px",
         lg: "8px",
-        xl: "12px",
-        "2xl": "16px",
+        xl: "10px",
+        "2xl": "14px",
         full: "9999px",
       },
       spacing: {

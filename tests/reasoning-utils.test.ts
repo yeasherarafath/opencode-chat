@@ -14,7 +14,9 @@ import {
   contentFromParts,
   truncateText,
   truncateLines,
+  prettyJsonOutput,
   summarizeToolInput,
+  findQueryHits,
   tokensTotal,
   contextTokens,
   formatTokens,
@@ -206,6 +208,25 @@ describe("truncate/summarize tool payloads", () => {
     assert.equal(summarizeToolInput("read", { path: "a.ts" } as any), "a.ts");
     assert.equal(summarizeToolInput("grep", { pattern: "patch", path: "src" } as any), '"patch" in src');
     assert.equal(summarizeToolInput("shell", { command: "node --test" } as any), "$ node --test");
+  });
+  it("summarizeToolInput one-lines execute code (no JSON dump)", () => {
+    const code = 'const r = search({ query: "read file", limit: 10 }); return JSON.stringify(r.items.map(i => i.path));';
+    const out = summarizeToolInput("execute", { code } as any);
+    assert.ok(out.includes('const r = search('));
+    assert.ok(!out.includes('"code"'));
+    const long = summarizeToolInput("execute", { code: "  \n  a();\n" + "x".repeat(500) } as any);
+    assert.match(long, /chars/);
+  });
+  it("prettyJsonOutput indents JSON, passes text through", () => {
+    assert.equal(prettyJsonOutput('["a","b"]'), '[\n "a",\n "b"\n]');
+    assert.equal(prettyJsonOutput("plain text"), "plain text");
+  });
+  it("findQueryHits finds case-insensitive offsets", () => {
+    assert.deepEqual(findQueryHits("Hello hello HELLO", "hello"), [0, 6, 12]);
+    assert.deepEqual(findQueryHits("no match here", "zzz"), []);
+    assert.deepEqual(findQueryHits("", "a"), []);
+    assert.deepEqual(findQueryHits("abc", ""), []);
+    assert.deepEqual(findQueryHits("aaa", "aa"), [0]);
   });
 });
 

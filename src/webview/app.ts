@@ -12,7 +12,7 @@ import {
   XCircle,
 } from "lucide-static";
 import { marked } from "marked";
-import { truncateText, truncateLines, summarizeToolInput, normalizePatchFiles, classifyDiffLine, diffLines, parseUnifiedDiff, tokensTotal, contextTokens, formatTokens } from "../ReasoningUtils";
+import { truncateText, truncateLines, prettyJsonOutput, summarizeToolInput, findQueryHits, normalizePatchFiles, classifyDiffLine, diffLines, parseUnifiedDiff, tokensTotal, contextTokens, formatTokens } from "../ReasoningUtils";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, a?: Record<string, string>, c?: (HTMLElement | Text)[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -182,6 +182,8 @@ function renderToolOutput(outText: string, toolName: string, filePath: string, p
     box.appendChild(renderNumberedCode(truncateLines(outText, 60, 4000), langFromPath(filePath), toolName === "read"));
   } else if (toolName === "grep" || toolName === "search") {
     box.appendChild(renderGrepOutput(outText, pattern) || txt(truncateLines(outText, 30, 2000)));
+  } else if (toolName === "execute") {
+    box.appendChild(txt(truncateLines(prettyJsonOutput(outText), 30, 2000)));
   } else {
     box.appendChild(txt(truncateLines(outText, 30, 2000)));
   }
@@ -555,6 +557,11 @@ class App {
   private atFetchTimer: ReturnType<typeof setTimeout> | null = null;
   private atLastQuery = "";
   private atResultsByQuery: Map<string, string[]> = new Map();
+  private atSel = 0;
+  private atShown: string[] = [];
+  private workspaceRoots: string[] = [];
+  /** Mention text inserted in the input (relative path) -> absolute path. */
+  private mentionPaths: Map<string, string> = new Map();
 
   constructor() {
     this.root = document.getElementById("root")!;
@@ -580,7 +587,7 @@ class App {
     this.root.appendChild(el("div", { className: "flex flex-col items-center justify-center h-screen px-8 text-center gap-5" }, [
       el("h2", { className: "text-headline" }, [txt("OpenCode CLI Required")]),
       el("p", { className: "text-body text-on-surface-variant max-w-[280px]" }, [txt("Install the opencode CLI to use AI-powered coding assistance.")]),
-      el("button", { className: "bg-primary-container text-on-primary border-none px-6 py-2.5 cursor-pointer text-sm font-medium rounded-md font-ui transition-colors duration-150 hover:bg-[#3d7ae8]", id: "install-btn" }, [txt("Install OpenCode")]),
+      el("button", { className: "bg-primary-container text-on-primary border-none px-6 py-2.5 cursor-pointer text-sm font-medium rounded-md font-ui transition-colors duration-150 hover:opacity-90", id: "install-btn" }, [txt("Install OpenCode")]),
     ]));
     document.getElementById("install-btn")!.onclick = () => vscode.postMessage({ type: "install" });
   }
@@ -625,29 +632,31 @@ class App {
     this.renderSessionList();
     this.renderModels();
     this.renderAgents();
+    // The composer was rebuilt: restore attached files and the open-file chip.
+    this.renderFileChips();
   }
 
   private createHeader(): HTMLElement {
-    const hdr = el("header", { className: "flex items-center justify-between px-3 h-11 flex-shrink-0 bg-surface-container-low border-b border-outline-variant" });
+    const hdr = el("header", { className: "flex items-center justify-between px-3 h-10 flex-shrink-0 bg-surface-dim border-b border-outline-variant" });
     const left = el("div", { className: "flex items-center gap-2" });
-    left.appendChild(el("span", { className: "text-headline font-bold text-on-surface" }, [txt("OpenCode")]));
+    left.appendChild(el("span", { className: "text-body font-semibold text-on-surface" }, [txt("OpenCode")]));
     left.appendChild(el("span", { className: "text-label text-on-surface-variant/60 self-end mb-px" }, [txt("v" + (this.state.opencodeVersion || "?"))]));
     hdr.appendChild(left);
 
     const right = el("div", { className: "flex items-center gap-1" });
-    const histBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "History" });
+    const histBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-hover", title: "History" });
     histBtn.innerHTML = "<span class='icon'>" + Clock + "</span>";
     histBtn.onclick = () => { this.state.showSessions = !this.state.showSessions; this.sessionsPanel.classList.toggle("hidden"); };
     right.appendChild(histBtn);
-    this.ioBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Import session" });
+    this.ioBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-hover", title: "Import session" });
     this.ioBtn.onclick = () => this.handleIoBtn();
     this.updateIoBtn();
     right.appendChild(this.ioBtn);
-    const globeBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Open OpenCode web GUI" });
+    const globeBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-hover", title: "Open OpenCode web GUI" });
     globeBtn.innerHTML = "<span class='icon'>" + Globe + "</span>";
     globeBtn.onclick = () => { vscode.postMessage({ type: "open-web-gui" }); };
     right.appendChild(globeBtn);
-    const providersBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-white/4", title: "Providers" });
+    const providersBtn = el("button", { className: "flex items-center gap-1 bg-transparent border-none cursor-pointer text-label text-on-surface-variant px-2 py-1 rounded-sm transition-all duration-150 whitespace-nowrap hover:text-primary hover:bg-hover", title: "Providers" });
     providersBtn.innerHTML = Settings;
     providersBtn.onclick = () => {
       vscode.postMessage({ type: "get-providers" });
@@ -679,7 +688,7 @@ class App {
   }
 
   private createAgentBar(): HTMLElement {
-    const bar = el("div", { className: "flex flex-col gap-1.5 p-2 bg-surface-container border-b border-outline-variant shrink-0" });
+    const bar = el("div", { className: "flex flex-col gap-1.5 px-3 py-2 bg-surface-dim border-b border-outline-variant shrink-0" });
     const top = el("div", { className: "flex items-center justify-between px-0.5" });
     const label = el("span", { className: "text-label text-on-surface-variant flex items-center gap-1 uppercase tracking-wide" });
     label.innerHTML = "<span class='icon'>" + Bot + "</span> Agent Mode";
@@ -688,17 +697,17 @@ class App {
     newBtn.innerHTML = "<span class='icon'>" + Plus + "</span> New Chat";
     newBtn.onclick = () => this.newSession();
     top.appendChild(newBtn);
-    const refreshBtn = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:text-primary hover:bg-white/4", title: "Refresh session" });
+    const refreshBtn = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:text-primary hover:bg-hover", title: "Refresh session" });
     refreshBtn.innerHTML = "<span class='icon'>" + RefreshCw + "</span>";
     refreshBtn.onclick = () => this.refreshSession();
     top.appendChild(refreshBtn);
     bar.appendChild(top);
 
-    const seg = el("div", { className: "flex gap-1 p-0.5 rounded-lg bg-surface-container-lowest border border-outline-variant overflow-x-auto", "data-part": "agent-segmented" });
+    const seg = el("div", { className: "flex gap-0.5 p-0.5 rounded-md bg-surface-container border border-outline-variant overflow-x-auto", "data-part": "agent-segmented" });
     const ags = this.state.agents.length ? this.state.agents : ["build", "plan", "review"];
     if (!this.state.selectedAgent && ags.includes("plan")) this.state.selectedAgent = "plan";
     for (const a of ags) {
-      const pill = el("button", { className: "shrink-0 flex items-center justify-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2.5 py-1 rounded-md cursor-pointer transition-all duration-150 whitespace-nowrap hover:text-primary" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
+      const pill = el("button", { className: "shrink-0 flex items-center justify-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2.5 py-1 rounded cursor-pointer transition-all duration-150 whitespace-nowrap hover:text-on-surface" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
       pill.textContent = a.charAt(0).toUpperCase() + a.slice(1);
       pill.onclick = () => {
         this.state.selectedAgent = a;
@@ -747,10 +756,10 @@ class App {
       const hdr = el("div", { className: "text-label text-outline uppercase tracking-wider px-3.5 pb-1 pt-1.5 text-xs" }, [txt(g.label)]);
       section.appendChild(hdr);
       for (const s of g.items) {
-        const item = el("div", { className: "flex items-start gap-2.5 px-3 py-2 cursor-pointer text-xs font-ui rounded-sm mx-1.5 my-px relative hover:bg-white/3" + (s.id === this.state.currentSessionId ? " active" : "") });
+        const item = el("div", { className: "flex items-start gap-2.5 px-3 py-2 cursor-pointer text-xs font-ui rounded-sm mx-1.5 my-px relative hover:bg-hover session-item" + (s.id === this.state.currentSessionId ? " active" : "") });
         item.onclick = () => this.switchSession(s.id);
 
-        const icon = el("div", { className: "shrink-0 w-8 h-8 rounded-md bg-primary/12 flex items-center justify-center text-sm text-primary" });
+        const icon = el("div", { className: "shrink-0 w-6 h-6 rounded bg-surface-container flex items-center justify-center text-xs text-on-surface-variant" });
         icon.innerHTML = MessageSquare;
         item.appendChild(icon);
 
@@ -804,16 +813,16 @@ class App {
   }
 
   private createInputArea(): HTMLElement {
-    const container = el("div", { className: "relative z-30 shrink-0 px-3 pb-2.5 pt-2 backdrop-blur-sm bg-surface-dim/85 border-t border-outline-variant" });
-    const inner = el("div", { className: "max-w-2xl mx-auto bg-surface-container-highest border border-outline-variant rounded-xl transition-all duration-150 focus-within:border-primary-container focus-within:shadow-[0_0_0_1px_rgba(77,142,255,0.2)]" });
+    const container = el("div", { className: "relative z-30 shrink-0 px-3 pb-3 pt-2 bg-surface-dim" });
+    const inner = el("div", { className: "max-w-2xl mx-auto bg-surface-container-lowest border border-outline-variant rounded-lg transition-all duration-150 focus-within:border-primary-container focus-within:shadow-[0_0_0_1px_var(--primary-container)]" });
 
-    this.slashMenuEl = el("div", { className: "absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-64 overflow-y-auto min-w-[220px] shadow-lg z-100 mb-1 hidden" });
+    this.slashMenuEl = el("div", { className: "slash-menu absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-64 overflow-y-auto min-w-[220px] shadow-lg z-100 mb-1 hidden" });
     container.appendChild(this.slashMenuEl);
-    this.atMenuEl = el("div", { className: "at-menu absolute bottom-full left-3 bg-surface-container-low border border-outline-variant rounded-md max-h-72 overflow-y-auto min-w-[260px] shadow-lg z-100 hidden" });
+    this.atMenuEl = el("div", { className: "at-menu absolute bottom-full border border-outline-variant rounded-md max-h-72 overflow-y-auto z-100 hidden" });
     container.appendChild(this.atMenuEl);
 
-    const inputToolbar = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant" });
-    const modelPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Selected model", "data-part": "model-pill" });
+    const inputToolbar = el("div", { className: "flex items-center gap-1 px-2 pt-1.5" });
+    const modelPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-transparent border border-transparent px-2 py-0.5 rounded cursor-pointer transition-all duration-150 hover:bg-hover hover:text-on-surface", title: "Selected model", "data-part": "model-pill" });
     this.modelPill = modelPill;
     modelPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedModel || "Model") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
     const modelPopup = el("div", { className: "absolute bottom-full left-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[220px] z-100 shadow-lg" });
@@ -852,7 +861,7 @@ class App {
         groups[prov].push(m);
       }
       for (const [prov, items] of Object.entries(groups)) {
-        const gh = el("div", { className: "px-2 py-1 text-xs font-semibold uppercase text-on-surface-variant/70 tracking-wide bg-black/10" }, [txt(prov)]);
+        const gh = el("div", { className: "px-2 py-1 text-xs font-semibold uppercase text-on-surface-variant/70 tracking-wide bg-surface-container" }, [txt(prov)]);
         modelList.appendChild(gh);
         for (const m of items) {
           const opt = el("div", { className: "model-popup-opt px-3 py-1 text-xs cursor-pointer font-ui transition-colors duration-100 hover:bg-primary/8" + (m === this.state.selectedModel ? " on" : "") }, [txt(m)]);
@@ -881,7 +890,7 @@ class App {
     inputToolbar.appendChild(modelPill);
     inputToolbar.appendChild(modelPopup);
 
-    const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-surface-container-high border border-outline-variant px-2 py-0.5 rounded-full cursor-pointer transition-all duration-150 hover:border-primary hover:text-primary", title: "Variant", "data-part": "variant-pill" });
+    const variantPill = el("button", { className: "flex items-center gap-1 text-label text-on-surface-variant bg-transparent border border-transparent px-2 py-0.5 rounded cursor-pointer transition-all duration-150 hover:bg-hover hover:text-on-surface", title: "Variant", "data-part": "variant-pill" });
     this.variantPill = variantPill;
     variantPill.innerHTML = "<span class='icon'>" + Settings + "</span> " + (this.state.selectedVariant || "Balanced") + " <span class='arrow' style='font-size:8px'>" + ChevronDown + "</span>";
     this.variantPopup = el("div", { className: "absolute bottom-full right-0 mb-1 bg-surface-container-low border border-outline-variant rounded-md min-w-[120px] z-100 shadow-lg" });
@@ -906,7 +915,7 @@ class App {
 
     inner.appendChild(inputToolbar);
 
-    this.fileChipsEl = el("div", { className: "flex items-center gap-1.5 px-3 py-1.5 border-b border-outline-variant hidden" });
+    this.fileChipsEl = el("div", { className: "flex items-center gap-1.5 px-3 pt-1.5 hidden" });
     inner.appendChild(this.fileChipsEl);
 
     const inputMain = el("div", { className: "flex items-end" });
@@ -919,6 +928,20 @@ class App {
       this.handleAtInput();
     };
     this.inputTextarea.onkeydown = (e) => {
+      if (!this.atMenuEl.classList.contains("hidden") && this.atShown.length) {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          const n = this.atShown.length;
+          this.atSel = (this.atSel + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+          this.highlightAtSelection();
+          return;
+        }
+        if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+          e.preventDefault();
+          this.insertMention(this.atShown[this.atSel] || this.atShown[0]);
+          return;
+        }
+      }
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this.send(); }
       if (e.key === "Escape") { this.hideSlashMenu(); this.hideAtMenu(); }
       const inSlash = !this.slashMenuEl.classList.contains("hidden");
@@ -939,9 +962,9 @@ class App {
     inputMain.appendChild(this.inputTextarea);
     inner.appendChild(inputMain);
 
-    const footer = el("div", { className: "flex items-center justify-between px-2.5 py-1.5 border-t border-outline-variant" });
+    const footer = el("div", { className: "flex items-center justify-between px-2 pb-1.5" });
     const left = el("div", { className: "flex items-center gap-0.5" });
-    const attachBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-1 rounded-sm transition-all duration-150 flex items-center justify-center hover:text-primary hover:bg-white/4", title: "Attach file" });
+    const attachBtn = el("button", { className: "bg-transparent border-none cursor-pointer text-on-surface-variant p-1 rounded-sm transition-all duration-150 flex items-center justify-center hover:text-primary hover:bg-hover", title: "Attach file" });
     attachBtn.innerHTML = "<span class='icon'>" + Paperclip + "</span>";
     attachBtn.onclick = () => vscode.postMessage({ type: "show-file-picker" });
     left.appendChild(attachBtn);
@@ -949,12 +972,12 @@ class App {
 
     const right = el("div", { className: "flex gap-1 items-center" });
     const actions = el("div", { className: "flex gap-1 items-center" });
-    this.abortBtn = el("button", { className: "w-8 h-8 rounded-full bg-transparent text-error border border-error cursor-pointer flex items-center justify-center transition-all duration-150 text-sm hover:bg-error/10", style: "display:none", title: "Abort" });
+    this.abortBtn = el("button", { className: "w-7 h-7 rounded-md bg-transparent text-error border border-error cursor-pointer flex items-center justify-center transition-all duration-150 text-sm hover:bg-error/10", style: "display:none", title: "Abort" });
     this.abortBtn.innerHTML = Square;
     this.abortBtn.onclick = () => vscode.postMessage({ type: "abort" });
     actions.appendChild(this.abortBtn);
 
-    this.sendBtn = el("button", { className: "w-8 h-8 rounded-full bg-primary-container text-on-primary border-none cursor-pointer flex items-center justify-center transition-all duration-150 hover:scale-105 active:scale-95", title: "Send" });
+    this.sendBtn = el("button", { className: "w-7 h-7 rounded-md bg-primary-container text-on-primary border-none cursor-pointer flex items-center justify-center transition-all duration-150 hover:opacity-90", title: "Send" });
     this.sendBtn.innerHTML = "<span class='icon'>" + ArrowUp + "</span>";
     this.sendBtn.onclick = () => this.send();
     actions.appendChild(this.sendBtn);
@@ -1026,6 +1049,7 @@ class App {
         return;
       }
       const query = after.toLowerCase();
+      if (query !== this.atLastQuery) this.atSel = 0;
       this.atLastQuery = query;
       // schedule a server-side find for this query (debounced) — covers the
       // entire workspace recursively instead of relying on a stale snapshot.
@@ -1058,8 +1082,40 @@ class App {
     this.atMenuEl.classList.add("hidden");
   }
 
+  /** Workspace-relative path with forward slashes (falls back to the input). */
+  private relPath(p: string): string {
+    const norm = p.replace(/\\/g, "/");
+    for (const root of this.workspaceRoots) {
+      const r = root.replace(/\\/g, "/").replace(/\/+$/, "");
+      if (norm.toLowerCase().startsWith(r.toLowerCase() + "/")) return norm.slice(r.length + 1);
+    }
+    return norm;
+  }
+
+  private insertMention(abs: string): void {
+    const rel = this.relPath(abs);
+    this.mentionPaths.set(rel, abs);
+    const ta = this.inputTextarea;
+    const before = ta.value.slice(0, ta.selectionStart);
+    const after = ta.value.slice(ta.selectionStart);
+    const atIdx = before.lastIndexOf("@");
+    const head = before.slice(0, atIdx) + "@" + rel + " ";
+    ta.value = head + after.replace(/^\S*/, "").replace(/^ /, "");
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = head.length;
+    this.hideAtMenu();
+  }
+
+  private highlightAtSelection(): void {
+    const rows = this.atMenuEl.querySelectorAll<HTMLElement>(".at-item[data-idx]");
+    rows.forEach((r) => r.classList.toggle("selected", Number(r.dataset.idx) === this.atSel));
+    const cur = this.atMenuEl.querySelector<HTMLElement>(".at-item.selected");
+    cur?.scrollIntoView({ block: "nearest" });
+  }
+
   private renderAtMenu(query: string): void {
     this.atMenuEl.innerHTML = "";
+    this.atShown = [];
     const files = this.state.workspaceFiles || [];
     const norm = (s: string) => s.toLowerCase().replace(/\\/g, "/");
     const q = norm(query.trim());
@@ -1069,7 +1125,7 @@ class App {
     } else {
       const scored: { f: string; score: number }[] = [];
       for (const f of files) {
-        const nf = norm(f);
+        const nf = norm(this.relPath(f));
         const parts = nf.split("/");
         const name = parts[parts.length - 1] || nf;
         let score = -1;
@@ -1084,79 +1140,62 @@ class App {
       matched = scored.map((s) => s.f);
     }
 
+    // The open editor file is the most likely pick: list it first.
+    const active = this.activeFile;
+    if (active) {
+      const rel = norm(this.relPath(active));
+      const hit = !q || rel.includes(q);
+      matched = matched.filter((f) => norm(f) !== norm(active));
+      if (hit) matched.unshift(active);
+    }
+
+    const browse = el("div", { className: "at-browse" });
+    browse.innerHTML = Paperclip + "<span>Browse for file…</span>";
+    browse.onclick = () => { vscode.postMessage({ type: "show-file-picker" }); this.hideAtMenu(); };
+
     if (!matched.length) {
-      if (!files.length) {
-        const item = el("div", { className: "at-item" });
-        item.innerHTML = `<span class="at-icon file">📄</span><div class="at-body"><div class="at-name">Searching workspace...</div></div>`;
-        this.atMenuEl.appendChild(item);
-      } else {
-        const item = el("div", { className: "at-item", style: "cursor:default;opacity:.6" });
-        item.innerHTML = `<span class="at-icon file">📄</span><div class="at-body"><div class="at-name">No files match "${query}"</div></div>`;
-        this.atMenuEl.appendChild(item);
-      }
-      const browse = el("div", { className: "at-browse" });
-      browse.innerHTML = `<span>📂</span> Browse for file...`;
-      browse.onclick = () => { vscode.postMessage({ type: "show-file-picker" }); this.hideAtMenu(); };
+      const msg = !files.length ? "Searching workspace…" : `No files match “${esc(query)}”`;
+      this.atMenuEl.appendChild(el("div", { className: "at-empty" }, [txt(msg)]));
       this.atMenuEl.appendChild(browse);
       return;
     }
 
     const limit = query ? 50 : 30;
-    let lastDir = "";
-    for (const f of matched.slice(0, limit)) {
-      const parts = f.split(/[\\/]/);
-      const name = parts.pop() || f;
-      const dir = parts.join("/") || ".";
-
-      // directory header (only when browsing, not when searching)
-      if (dir !== lastDir && !query) {
-        lastDir = dir;
-        const hdr = el("div", { className: "at-item", style: "cursor:default;opacity:.5;font-size:10px;padding:4px 10px;text-transform:uppercase;letter-spacing:.04em" });
-        hdr.innerHTML = `<span class="at-icon folder">📁</span><span>${dir === "." ? "root" : dir}</span>`;
-        this.atMenuEl.appendChild(hdr);
-      }
-
-      const item = el("div", { className: "at-item" });
-      const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
-      const iconMap: Record<string, string> = {
-        ts: "🟦", tsx: "⚛️", js: "🟨", jsx: "⚛️", json: "📋", css: "🎨", html: "🌐",
-        md: "📝", svg: "🖼️", png: "🖼️", jpg: "🖼️", ico: "🖼️",
-        py: "🐍", rs: "🦀", go: "🔵", java: "☕", rb: "💎", php: "🐘",
-        c: "⚙️", cpp: "⚙️", h: "📐", sh: "💲", bat: "💲", ps1: "💲",
-        yml: "📋", yaml: "📋", toml: "📋", env: "🔒", gitignore: "🙈",
-        lock: "🔒", vue: "💚", svelte: "🧡", astro: "🧡",
+    this.atShown = matched.slice(0, limit);
+    if (this.atSel >= this.atShown.length) this.atSel = 0;
+    this.atShown.forEach((f, idx) => {
+      const rel = this.relPath(f);
+      const parts = rel.split("/");
+      const name = parts.pop() || rel;
+      const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase().slice(0, 5) : "";
+      const isActive = !!active && norm(f) === norm(active);
+      const mark = (s: string) => {
+        const i = q ? s.toLowerCase().indexOf(q) : -1;
+        if (i < 0) return esc(s);
+        return esc(s.slice(0, i)) + "<mark>" + esc(s.slice(i, i + q.length)) + "</mark>" + esc(s.slice(i + q.length));
       };
-      const icon = iconMap[ext] || "📄";
-      const shortDir = dir === "." ? "" : dir.length > 60 ? "…" + dir.slice(-58) : dir;
-
-      item.innerHTML = `<span class="at-icon file">${icon}</span><div class="at-body"><div class="at-name">${name}</div><div class="at-dir">${shortDir}</div></div>`;
-      item.onclick = () => {
-        const before = this.inputTextarea.value.slice(0, this.inputTextarea.selectionStart);
-        const after = this.inputTextarea.value.slice(this.inputTextarea.selectionStart);
-        const atIdx = before.lastIndexOf("@");
-        this.inputTextarea.value = before.slice(0, atIdx) + "@" + f + " " + after;
-        this.inputTextarea.focus();
-        const pos = before.slice(0, atIdx).length + f.length + 2;
-        this.inputTextarea.selectionStart = this.inputTextarea.selectionEnd = pos;
-        this.hideAtMenu();
-      };
+      const item = el("div", { className: "at-item" + (idx === this.atSel ? " selected" : ""), title: rel });
+      item.dataset.idx = String(idx);
+      item.innerHTML =
+        `<span class="at-icon">${File}</span>` +
+        `<div class="at-body"><div class="at-line"><span class="at-name">${mark(name)}</span>` +
+        (ext ? `<span class="at-ext">${esc(ext)}</span>` : "") + `</div>` +
+        `<div class="at-dir">${mark(rel)}</div></div>` +
+        (isActive ? `<span class="at-tag">current</span>` : "");
+      item.onmouseenter = () => { this.atSel = idx; this.highlightAtSelection(); };
+      item.onmousedown = (ev) => ev.preventDefault(); // keep textarea focus
+      item.onclick = () => this.insertMention(f);
       this.atMenuEl.appendChild(item);
-    }
+    });
 
     if (matched.length > limit) {
-      const more = el("div", { className: "at-item", style: "cursor:default;opacity:.55;font-size:11px" });
-      more.innerHTML = `<span class="at-icon file">⋯</span><div class="at-body"><div class="at-name">${matched.length - limit} more — keep typing to narrow</div></div>`;
-      this.atMenuEl.appendChild(more);
+      this.atMenuEl.appendChild(el("div", { className: "at-empty" }, [txt(`${matched.length - limit} more — keep typing to narrow`)]));
     }
-
-    const browse = el("div", { className: "at-browse" });
-    browse.innerHTML = `<span>📂</span> Browse for file...`;
-    browse.onclick = () => { vscode.postMessage({ type: "show-file-picker" }); this.hideAtMenu(); };
     this.atMenuEl.appendChild(browse);
   }
 
   private createStatusBar(): HTMLElement {
-    const bar = el("div", { className: "flex items-center gap-1.5 px-3 py-0.5 text-label text-on-surface-variant border-t border-outline-variant shrink-0 overflow-hidden" });
+    const bar = el("div", { className: "status-bar flex items-center gap-1.5 px-3 py-1 text-label text-on-surface-variant border-t border-outline-variant shrink-0 overflow-hidden" });
 
     this.infoBtn = el("button", { className: "bg-transparent border-none text-on-surface-variant cursor-pointer text-sm p-0 leading-none transition-colors duration-150 hover:text-on-surface shrink-0", title: "Show session state" }, [txt("ⓘ")]);
     this.infoBtn.onclick = () => this.showStateModal();
@@ -1264,8 +1303,8 @@ class App {
         const hdr = el("div", { className: "diff-header" });
         hdr.appendChild(el("span", { className: "diff-file" }, [txt(d.file)]));
         const stats = el("span", { className: "diff-stats" });
-        const add = el("span", { style: "color:#22c55e" }, [txt("+" + d.additions)]);
-        const del = el("span", { style: "color:#ef4444;margin-left:4px" }, [txt("-" + d.deletions)]);
+        const add = el("span", { style: "color:var(--diff-add)" }, [txt("+" + d.additions)]);
+        const del = el("span", { style: "color:var(--diff-del);margin-left:4px" }, [txt("-" + d.deletions)]);
         stats.append(add, del);
         hdr.appendChild(stats);
         section.appendChild(hdr);
@@ -1379,7 +1418,7 @@ class App {
       modal.appendChild(row);
     }
 
-    const closeBtn = el("button", { className: "mt-4 w-full bg-primary text-on-primary border-none py-2.5 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85 shadow-[0_4px_12px_rgba(173,198,255,0.15)]" }, [txt("Close")]);
+    const closeBtn = el("button", { className: "mt-4 w-full bg-primary-container text-on-primary border-none py-2 text-label font-semibold rounded-md cursor-pointer font-ui transition-all duration-150 hover:bg-primary-container" }, [txt("Close")]);
     closeBtn.onclick = () => this.overlayEl.classList.add("hidden");
     modal.appendChild(closeBtn);
     this.overlayEl.appendChild(modal);
@@ -1421,14 +1460,14 @@ class App {
 
     const footer = el("div", { className: "flex items-center justify-end gap-2 shrink-0" });
     if (mode === "export") {
-      const saveBtn = el("button", { className: "bg-primary text-on-primary border-none py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary/85" }, [txt("Save")]);
+      const saveBtn = el("button", { className: "bg-primary text-on-primary border-none py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:bg-primary-container" }, [txt("Save")]);
       saveBtn.onclick = () => { vscode.postMessage({ type: "save-json", json, defaultName: defaultName || "session.json" }); };
       footer.appendChild(saveBtn);
-      const copyBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Copy")]);
+      const copyBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-hover" }, [txt("Copy")]);
       copyBtn.onclick = () => { navigator.clipboard.writeText(json).catch(() => {}); };
       footer.appendChild(copyBtn);
     }
-    const closeBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-white/4" }, [txt("Close")]);
+    const closeBtn = el("button", { className: "bg-transparent text-on-surface-variant border border-outline-variant py-2 px-4 text-label font-bold rounded-lg cursor-pointer font-ui transition-all duration-150 hover:text-on-surface hover:bg-hover" }, [txt("Close")]);
     closeBtn.onclick = () => this.overlayEl.classList.add("hidden");
     footer.appendChild(closeBtn);
     modal.appendChild(footer);
@@ -1483,6 +1522,10 @@ class App {
       return;
     }
     for (const msg of this.state.messages) this.appendMessageDOM(msg);
+    // Re-apply find highlights — render wiped the DOM (marks included).
+    if (!this.searchBarEl.classList.contains("hidden") && this.searchInput.value) {
+      this.doSearch(this.searchInput.value, false);
+    }
     const smooth = this.pendingSmoothScroll;
     this.pendingSmoothScroll = false;
     if (smooth || wasAtBottom) {
@@ -1640,7 +1683,7 @@ class App {
             // Read output already opens with its own "Read file … lines"
             // header, so an Input summary row would repeat the same
             // path:range line twice — show it only when no output arrived.
-            const isShell = toolName === "shell";
+            const isShell = toolName === "shell" || toolName === "execute";
             details.appendChild(el("div", { className: "tool-input" + (isShell ? " tool-input-shell" : "") }, [txt(summarizeToolInput(String(toolName), inp))]));
           }
         }
@@ -1656,7 +1699,7 @@ class App {
           for (const entry of metaFilesNorm) filesWrap.appendChild(renderFileDiffBlock(entry));
           tc.appendChild(filesWrap);
         }
-        if (meta && Object.keys(meta).length && toolName !== "read" && !metaFilesNorm.length) {
+        if (meta && Object.keys(meta).length && toolName !== "read" && toolName !== "execute" && !metaFilesNorm.length) {
           details.appendChild(el("div", { className: "tool-input" }, [txt(truncateText(JSON.stringify(meta, null, 2), 2000))]));
         }
         if (details.children.length) {
@@ -1974,7 +2017,7 @@ class App {
     tc.appendChild(nameLine);
     const details = el("div", { className: "tool-details hidden" });
     if (input) {
-      const shellCls = String(name || "tool") === "shell" ? " tool-input-shell" : "";
+      const shellCls = (String(name || "tool") === "shell" || String(name || "tool") === "execute") ? " tool-input-shell" : "";
       details.appendChild(el("div", { className: "tool-input" + shellCls }, [txt(summarizeToolInput(String(name || "tool"), (input || {}) as Record<string, unknown>))]));
     }
     if (details.children.length) {
@@ -2029,6 +2072,8 @@ class App {
       const contentRow = el("div", { className: "tool-result-content tool-output-row" });
       if (name === "read" || name === "edit" || name === "write") {
         contentRow.appendChild(renderNumberedCode(truncateLines(output, 60, 4000), "", name === "read"));
+      } else if (name === "execute") {
+        contentRow.appendChild(txt(truncateLines(prettyJsonOutput(output), 30, 2000)));
       } else {
         contentRow.appendChild(txt(truncateLines(output, 30, 2000)));
       }
@@ -2420,7 +2465,8 @@ class App {
 
     promptText = promptText.replace(/(^|\s)@([\w.\-\\\/:]+)/g, (_match, before, name) => {
       const normalized = name.replace(/\//g, "\\");
-      const found = this.state.workspaceFiles.find(f => f.endsWith(normalized) || f.endsWith(name));
+      const found = this.mentionPaths.get(name)
+        || this.state.workspaceFiles.find(f => f.endsWith(normalized) || f.endsWith(name));
       if (found) {
         fileRefs.push(found);
         return before; // remove from prompt — content attached separately
@@ -2751,6 +2797,7 @@ class App {
         }
         case "active-file": {
           const fp = (msg.path as string) || "";
+          if (Array.isArray(msg.roots)) this.workspaceRoots = msg.roots as string[];
           if (fp !== this.activeFile) {
             this.activeFile = fp;
             this.renderFileChips();
@@ -2758,6 +2805,7 @@ class App {
           break;
         }
         case "files": {
+          if (Array.isArray(msg.roots)) this.workspaceRoots = msg.roots as string[];
           const incoming = (msg.files as string[]) || [];
           const incomingQuery = ((msg.query as string) || "").toLowerCase();
           this.atResultsByQuery.set(incomingQuery, incoming);
@@ -2785,8 +2833,10 @@ class App {
           break;
         }
         case "file-picked": {
-          const fp = msg.path as string;
-          if (fp) {
+          const abs = msg.path as string;
+          if (abs) {
+            const fp = this.relPath(abs);
+            this.mentionPaths.set(fp, abs);
             const cursor = this.inputTextarea.selectionStart;
             const before = this.inputTextarea.value.slice(0, cursor);
             const after = this.inputTextarea.value.slice(cursor);
@@ -3054,7 +3104,7 @@ class App {
     }) : ["build", "plan", "review"];
     if (!this.state.selectedAgent && ags.includes("plan")) this.state.selectedAgent = "plan";
     for (const a of ags) {
-      const pill = el("button", { className: "shrink-0 flex items-center justify-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2.5 py-1 rounded-md cursor-pointer transition-all duration-150 whitespace-nowrap hover:text-primary" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
+      const pill = el("button", { className: "shrink-0 flex items-center justify-center gap-1 text-label text-on-surface-variant bg-transparent border-none px-2.5 py-1 rounded cursor-pointer transition-all duration-150 whitespace-nowrap hover:text-on-surface" + (a === this.state.selectedAgent ? " active" : ""), "data-agent": a });
       pill.textContent = a.charAt(0).toUpperCase() + a.slice(1);
       pill.onclick = () => {
         this.state.selectedAgent = a;
@@ -3087,7 +3137,10 @@ class App {
           (c.attached ? " bg-primary-container/20 text-primary border-primary-container" : " bg-surface-container-low text-on-surface-variant border-outline-variant hover:border-primary hover:text-primary"),
         title: c.path,
       });
-      chip.innerHTML = (c.attached ? X : Plus) + " " + name;
+      chip.innerHTML = c.attached
+        ? File + " " + esc(name) + " " + X
+        : Plus + " " + esc(name) + ' <span class="opacity-60">current file</span>';
+      chip.title = c.attached ? c.path + " — click to remove" : c.path + " — click to attach";
       chip.onclick = () => this.toggleFileAttachment(c.path);
       this.fileChipsEl.appendChild(chip);
     }
@@ -3117,9 +3170,10 @@ class App {
     }
   }
 
-  private doSearch(query: string): void {
+  private doSearch(query: string, scroll = true): void {
     this.searchMatches = [];
     this.searchActiveIdx = -1;
+    this.clearSearchMarks();
     const msgs = this.chatArea.querySelectorAll<HTMLElement>(".msg");
     if (!query) {
       msgs.forEach(m => { m.classList.remove("search-match", "search-active"); });
@@ -3127,12 +3181,12 @@ class App {
       return;
     }
     const q = query.toLowerCase();
-    let idx = 0;
     msgs.forEach(m => {
       const text = (m.textContent || "").toLowerCase();
       if (text.includes(q)) {
         m.classList.add("search-match");
         m.classList.remove("search-active");
+        this.markQueryIn(m, query);
         this.searchMatches.push(m);
       } else {
         m.classList.remove("search-match", "search-active");
@@ -3141,11 +3195,60 @@ class App {
     if (this.searchMatches.length) {
       this.searchActiveIdx = 0;
       this.searchMatches[0].classList.add("search-active");
-      this.searchMatches[0].scrollIntoView({ behavior: "smooth", block: "center" });
+      this.updateActiveSearchHit(scroll);
     }
     this.searchNavEl.textContent = this.searchMatches.length
       ? (this.searchActiveIdx + 1) + "/" + this.searchMatches.length
       : "0/0";
+  }
+
+  /** Wrap every occurrence of the query in <mark> so found text is highlighted. */
+  private markQueryIn(root: HTMLElement, query: string): void {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    while (walker.nextNode()) {
+      const n = walker.currentNode as Text;
+      if ((n.parentElement)?.closest("mark.search-hit")) continue;
+      nodes.push(n);
+    }
+    for (const node of nodes) {
+      const text = node.textContent || "";
+      const hits = findQueryHits(text, query);
+      if (!hits.length) continue;
+      // Split back-to-front so earlier offsets stay valid.
+      let head: Text = node;
+      const qlen = query.length;
+      for (let h = hits.length - 1; h >= 0; h--) {
+        const at = hits[h];
+        head.splitText(at + qlen);
+        const hit = head.splitText(at);
+        const mark = document.createElement("mark");
+        mark.className = "search-hit";
+        mark.textContent = hit.textContent;
+        hit.parentNode!.replaceChild(mark, hit);
+      }
+    }
+  }
+
+  private clearSearchMarks(): void {
+    this.chatArea.querySelectorAll("mark.search-hit").forEach((mk) => {
+      const parent = mk.parentNode;
+      if (!parent) return;
+      parent.replaceChild(document.createTextNode(mk.textContent || ""), mk);
+      parent.normalize();
+    });
+  }
+
+  /** Move the strong highlight to marks inside the active message and scroll to them. */
+  private updateActiveSearchHit(scroll = true): void {
+    this.chatArea.querySelectorAll("mark.search-hit-active").forEach((mk) => mk.classList.remove("search-hit-active"));
+    const active = this.searchMatches[this.searchActiveIdx];
+    if (!active) return;
+    active.querySelectorAll("mark.search-hit").forEach((mk) => mk.classList.add("search-hit-active"));
+    if (scroll) {
+      const first = active.querySelector("mark.search-hit-active");
+      (first || active).scrollIntoView({ behavior: "smooth", block: "center" });
+    }
   }
 
   private searchNext(): void {
@@ -3153,7 +3256,7 @@ class App {
     this.searchMatches[this.searchActiveIdx]?.classList.remove("search-active");
     this.searchActiveIdx = (this.searchActiveIdx + 1) % this.searchMatches.length;
     this.searchMatches[this.searchActiveIdx].classList.add("search-active");
-    this.searchMatches[this.searchActiveIdx].scrollIntoView({ behavior: "smooth", block: "center" });
+    this.updateActiveSearchHit();
     this.searchNavEl.textContent = (this.searchActiveIdx + 1) + "/" + this.searchMatches.length;
   }
 
@@ -3162,7 +3265,7 @@ class App {
     this.searchMatches[this.searchActiveIdx]?.classList.remove("search-active");
     this.searchActiveIdx = (this.searchActiveIdx - 1 + this.searchMatches.length) % this.searchMatches.length;
     this.searchMatches[this.searchActiveIdx].classList.add("search-active");
-    this.searchMatches[this.searchActiveIdx].scrollIntoView({ behavior: "smooth", block: "center" });
+    this.updateActiveSearchHit();
     this.searchNavEl.textContent = (this.searchActiveIdx + 1) + "/" + this.searchMatches.length;
   }
 

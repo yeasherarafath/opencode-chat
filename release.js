@@ -8,9 +8,14 @@
  *   node release.js                         # patch bump (0.2.0 -> 0.2.1)
  *   node release.js minor                   # 0.3.0
  *   node release.js major                   # 1.0.0
+ *   node release.js beta                    # pre-release (0.3.17 -> 0.3.17.1)
  *   node release.js 0.3.0                   # explicit version
  *   node release.js --dry-run               # preview only, no changes
  *   node release.js --force                 # bypass branch check
+ *
+ * Version rules: the marketplace only accepts 1-4 plain numbers
+ * (e.g. 0.3.17 or 0.3.17.1). "-beta" suffixes are rejected, so betas
+ * use a 4th number (0.3.17.1, 0.3.17.2, ...) plus "preview": true.
  *
  * All flags/args are positional:
  *   node release.js [version|bump] [--dry-run] [--force]
@@ -23,7 +28,7 @@ const path = require("path");
 const PKG_PATH = path.join(__dirname, "package.json");
 const TAG_PREFIX = "v";
 const args = process.argv.slice(2);
-const BUMP = args.find(a => /^\d+\.\d+\.\d+(-beta\.\d+)?$/.test(a) || /^(patch|minor|major|beta)$/.test(a)) || "patch";
+const BUMP = args.find(a => /^\d+\.\d+\.\d+(\.\d+)?$/.test(a) || /^(patch|minor|major|beta)$/.test(a)) || "patch";
 const DRY_RUN = args.includes("--dry-run");
 const FORCE = args.includes("--force");
 
@@ -62,23 +67,24 @@ function exec(cmd) {
 function resolveVersion(bump) {
   const pkg = readPkg();
   const current = pkg.version;
-  const m = current.match(/^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/);
+  // Accept legacy "-beta.N" currents so old trees can move forward.
+  const m = current.match(/^(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?(?:-beta\.(\d+))?$/);
+  if (!m) bail(`Current version "${current}" is not numeric (expected e.g. 0.3.17 or 0.3.17.1).`);
 
   function core(a, b, c) { return [a, b, c].join("."); }
 
   let next;
-  if (/^\d+\.\d+\.\d+(-beta\.\d+)?$/.test(bump)) {
+  if (/^\d+\.\d+\.\d+(\.\d+)?$/.test(bump)) {
     next = bump;
   } else if (bump === "major") {
     next = core(+m[1] + 1, 0, 0);
   } else if (bump === "minor") {
     next = core(m[1], +m[2] + 1, 0);
   } else if (bump === "beta") {
-    if (m[4] !== undefined) {
-      next = `${core(m[1], m[2], m[3])}-beta.${+m[4] + 1}`;
-    } else {
-      next = `${current}-beta.0`;
-    }
+    // Betas use a 4th number (0.3.17.1, 0.3.17.2, ...) — the marketplace
+    // rejects "-beta" suffixes. Marked preview below.
+    const base = core(m[1], m[2], m[3]);
+    next = `${base}.${m[4] !== undefined ? +m[4] + 1 : 1}`;
   } else {
     next = core(m[1], m[2], +m[3] + 1);
   }
@@ -119,7 +125,7 @@ function main() {
   console.log("\n  [1/5] Update version...");
   const pkg = readPkg();
   pkg.version = next;
-  if (next.includes("-beta")) {
+  if (next.split(".").length > 3) {
     pkg.preview = true;
   } else {
     delete pkg.preview;
